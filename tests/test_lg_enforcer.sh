@@ -109,6 +109,8 @@ case_safe_markers_allowed() {
     'leading-head|head -n 5 /var/log/system.log'
     'leading-tail|tail -n 5 /var/log/system.log'
     'redirect-file|grep -r foo / > out.txt'
+    'find-maxdepth|find / -maxdepth 2 -name x'
+    'journalctl-lines|journalctl -n 50'
   )
 
   for entry in "${commands[@]}"; do

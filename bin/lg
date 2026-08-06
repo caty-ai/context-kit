@@ -56,7 +56,13 @@ HEAD_LINES=$(coerce_numeric_or_default "${LG_HEAD:-}" "${DEFAULT_HEAD_LINES}")
 TAIL_LINES=$(coerce_numeric_or_default "${LG_TAIL:-}" "${DEFAULT_TAIL_LINES}")
 TTL_DAYS=$(coerce_numeric_or_default "${LG_TTL_DAYS:-}" "${DEFAULT_TTL_DAYS}")
 
-SCRATCH_ROOT="${CK_SCRATCH_DIR:-$(default_scratch_root)}"
+if [ -n "${CK_SCRATCH_DIR:-}" ]; then
+  SCRATCH_ROOT="${CK_SCRATCH_DIR}"
+  SCRATCH_ROOT_IS_DEFAULT=0
+else
+  SCRATCH_ROOT=$(default_scratch_root)
+  SCRATCH_ROOT_IS_DEFAULT=1
+fi
 SCRATCH_WARNING_EMITTED=0
 SCRATCH_OK=1
 SCRATCH_FILE=""
@@ -85,7 +91,7 @@ if ! mkdir -p "$SCRATCH_ROOT" 2>/dev/null; then
   warn_scratch_failure "unable to create scratch directory: $SCRATCH_ROOT"
 fi
 
-if [ "$SCRATCH_OK" -eq 1 ]; then
+if [ "$SCRATCH_OK" -eq 1 ] && [ "$SCRATCH_ROOT_IS_DEFAULT" -eq 1 ]; then
   if ! chmod 700 "$SCRATCH_ROOT" 2>/dev/null; then
     warn_scratch_failure "unable to secure scratch directory permissions: $SCRATCH_ROOT"
   fi

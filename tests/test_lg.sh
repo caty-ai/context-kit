@@ -192,16 +192,44 @@ case_home_unset_fallback() {
   fi
 }
 
-case_chmod_700() {
-  local case_name="chmod-700"
-  local scratch_dir="${TMP_DIR}/scratch-mode"
+case_user_scratch_keeps_mode() {
+  local case_name="user-scratch-keeps-mode"
+  local scratch_dir="${TMP_DIR}/scratch-user-mode"
+  mkdir -p "${scratch_dir}"
+  chmod 755 "${scratch_dir}"
   run_capture env CK_SCRATCH_DIR="${scratch_dir}" "${LG}" bash -c 'printf "mode-check\n"'
+  local scratch_file
   local mode
+  scratch_file=$(scratch_path_from_footer "${RUN_STDOUT}")
   mode=$(dir_mode "${scratch_dir}")
-  if [ "${RUN_STATUS}" = "0" ] && [ "${mode}" = "700" ]; then
+  if [ "${RUN_STATUS}" = "0" ] &&
+     [ "${mode}" = "755" ] &&
+     [ -n "${scratch_file}" ] &&
+     [ -f "${scratch_file}" ]; then
     record_pass "${case_name}"
   else
-    record_fail "${case_name}" "expected scratch directory permissions to be chmod 700"
+    record_fail "${case_name}" "expected user-supplied scratch directory to keep mode 755 and receive a scratch file"
+  fi
+}
+
+case_default_scratch_created_700() {
+  local case_name="default-scratch-created-700"
+  local temp_home="${TMP_DIR}/default-home"
+  local scratch_dir="${temp_home}/.claude/scratch/mode-case/memory"
+  mkdir -p "${temp_home}"
+  run_capture env -u CK_SCRATCH_DIR HOME="${temp_home}" CK_AGENT=mode-case "${LG}" \
+    bash -c 'printf "default-mode-check\n"'
+  local scratch_file
+  local mode
+  scratch_file=$(scratch_path_from_footer "${RUN_STDOUT}")
+  mode=$(dir_mode "${scratch_dir}")
+  if [ "${RUN_STATUS}" = "0" ] &&
+     [ "${mode}" = "700" ] &&
+     [ -n "${scratch_file}" ] &&
+     [ -f "${scratch_file}" ]; then
+    record_pass "${case_name}"
+  else
+    record_fail "${case_name}" "expected default scratch directory to be created mode 700 and receive a scratch file"
   fi
 }
 
@@ -275,7 +303,8 @@ case_invalid_numeric_defaults
 case_env_preview_override
 case_exit_code
 case_home_unset_fallback
-case_chmod_700
+case_user_scratch_keeps_mode
+case_default_scratch_created_700
 case_large_scratch_fail_keeps_temp
 case_read_only_dir_root_skip
 finish

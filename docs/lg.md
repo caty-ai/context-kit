@@ -103,7 +103,7 @@ The hook is a nudge, not a guarantee. The pattern list is intentionally incomple
 
 `lg` writes scratch files under `CK_SCRATCH_DIR` or, by default, `${HOME}/.claude/scratch/${CK_AGENT:-agent}/memory`. If `HOME` is unset, it falls back to `${TMPDIR:-/tmp}/context-kit-scratch`.
 
-Scratch transcripts can contain secrets, tokens, stack traces, or raw customer data. When `lg` initializes the scratch directory, it attempts to `chmod 700` that directory before writing. If it cannot create or secure the scratch directory, it falls back instead of blocking the command.
+Scratch transcripts can contain secrets, tokens, stack traces, or raw customer data. The default scratch directory is created with mode `0700`. A user-supplied `CK_SCRATCH_DIR` keeps its own permissions; protecting it is your responsibility. If `lg` cannot create the scratch directory or secure the default scratch directory, it falls back instead of blocking the command.
 
 Fallback rules:
 
@@ -114,6 +114,8 @@ Fallback rules:
 Each scratch file includes `createdAt` and `expiresAt` metadata, and the default convention is a 7-day TTL through `LG_TTL_DAYS`.
 
 Scratch cleanup is intentionally user-owned. Use your own cron job or launchd task to remove expired files on your schedule.
+
+On scratch failure, large outputs can leave mode `0600` `lg.XXXXXX` temp files in `${TMPDIR:-/tmp}`; remove ones older than seven days with `find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'lg.*' -mtime +7 -delete`.
 
 Example cleanup command:
 
