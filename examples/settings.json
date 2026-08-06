@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"<CONTEXT_KIT_DIR>/hooks/lg-enforcer.py\""
+          }
+        ]
+      }
+    ]
+  }
+}

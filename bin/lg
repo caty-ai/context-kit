@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# lg - large output wrapper that persists full output to scratch and returns a
+# bounded preview to the caller.
+
+set -u
+
+warn_scratch_failure() {
+  if [ "${SCRATCH_WARNING_EMITTED}" -eq 0 ]; then
+    printf '[lg] scratch unavailable; returned full output instead (%s)\n' "$1" >&2
+    SCRATCH_WARNING_EMITTED=1
+  fi
+  SCRATCH_OK=0
+}
+
+if [ $# -eq 0 ]; then
+  echo "usage: lg <command> [args...]" >&2
+  exit 64
+fi
+
+HEAD_LINES="${LG_HEAD:-40}"
+TAIL_LINES="${LG_TAIL:-40}"
+TTL_DAYS="${LG_TTL_DAYS:-7}"
+
+SCRATCH_ROOT="${CK_SCRATCH_DIR:-${HOME}/.claude/scratch/${CK_AGENT:-agent}/memory}"
+SCRATCH_WARNING_EMITTED=0
+SCRATCH_OK=1
+SCRATCH_FILE=""
+
+TS=$(date "+%Y-%m-%dT%H-%M-%S")
+CREATED=$(date "+%Y-%m-%dT%H:%M:%S")
+if EXPIRES=$(date -v+"${TTL_DAYS}"d "+%Y-%m-%dT%H:%M:%S" 2>/dev/null); then
+  :
+else
+  EXPIRES=$(date -d "+${TTL_DAYS} days" "+%Y-%m-%dT%H:%M:%S")
+fi
+
+CMD_SLUG=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '-' | sed 's/--*/-/g; s/^-//; s/-$//' | cut -c1-32)
+[ -z "$CMD_SLUG" ] && CMD_SLUG="cmd"
+
+SCRATCH_FILE="${SCRATCH_ROOT}/scratch-${TS}-${CMD_SLUG}.md"
+TMP_OUT=$(mktemp -t lg.XXXXXX)
+trap 'rm -f "$TMP_OUT"' EXIT
+
+if ! mkdir -p "$SCRATCH_ROOT" 2>/dev/null; then
+  warn_scratch_failure "unable to create scratch directory: $SCRATCH_ROOT"
+fi
+
+if [ "$SCRATCH_OK" -eq 1 ]; then
+  if ! (
+    {
+    printf -- '---\n'
+    printf 'type: scratch\n'
+    printf 'mode: proactive-lg\n'
+    printf 'cmd: %s\n' "$*"
+    printf 'createdAt: %s\n' "$CREATED"
+    printf 'expiresAt: %s\n' "$EXPIRES"
+    printf -- '---\n\n'
+    printf '## Command\n\n```sh\n%s\n```\n\n## Output\n\n```\n' "$*"
+    } > "$SCRATCH_FILE"
+  ) 2>/dev/null; then
+    warn_scratch_failure "unable to initialize scratch file: $SCRATCH_FILE"
+  fi
+fi
+
+"$@" >"$TMP_OUT" 2>&1
+EXIT_CODE=$?
+
+if [ "$SCRATCH_OK" -eq 1 ]; then
+  if ! (cat "$TMP_OUT" >> "$SCRATCH_FILE") 2>/dev/null; then
+    warn_scratch_failure "unable to append command output: $SCRATCH_FILE"
+  fi
+fi
+
+if [ "$SCRATCH_OK" -eq 1 ]; then
+  if ! (printf '\n```\n\n## Exit\n\nexit_code: %d\n' "$EXIT_CODE" >> "$SCRATCH_FILE") 2>/dev/null; then
+    warn_scratch_failure "unable to finalize scratch file: $SCRATCH_FILE"
+  fi
+fi
+
+SIZE=$(wc -c < "$TMP_OUT" | tr -d ' ')
+LINES=$(wc -l < "$TMP_OUT" | tr -d ' ')
+TOTAL_SHOWN_LINES=$((HEAD_LINES + TAIL_LINES))
+
+if [ "$SCRATCH_OK" -eq 1 ] && [ "$LINES" -gt "$TOTAL_SHOWN_LINES" ]; then
+  OMITTED=$((LINES - HEAD_LINES - TAIL_LINES))
+  head -n "$HEAD_LINES" "$TMP_OUT"
+  printf '\n... [%d lines omitted / %d bytes — full output: %s] ...\n\n' "$OMITTED" "$SIZE" "$SCRATCH_FILE"
+  tail -n "$TAIL_LINES" "$TMP_OUT"
+else
+  cat "$TMP_OUT"
+fi
+
+if [ "$SCRATCH_OK" -eq 1 ]; then
+  printf '\n[lg] full output preserved: %s (TTL %d days, exit_code=%d, %d lines, %d bytes)\n' \
+    "$SCRATCH_FILE" "$TTL_DAYS" "$EXIT_CODE" "$LINES" "$SIZE"
+fi
+
+exit "$EXIT_CODE"
