@@ -9,6 +9,7 @@ from typing import Optional, Tuple
 
 DISABLED = os.environ.get("CK_LG_ENFORCER_DISABLED", "0") == "1"
 LG_PATH = os.environ.get("CK_LG_PATH") or "lg"
+INLINE_BYPASS_LITERAL = "CK_LG_ENFORCER_DISABLED=1"
 
 # Markers that indicate the command already trims its own output.
 # If any match, skip enforcement (assume the caller knows what they are doing).
@@ -46,6 +47,10 @@ def is_already_safe(cmd: str) -> bool:
     return any(re.search(pattern, cmd) for pattern in ALREADY_SAFE)
 
 
+def has_inline_bypass(cmd: str) -> bool:
+    return INLINE_BYPASS_LITERAL in cmd
+
+
 def find_risk(cmd: str) -> Optional[Tuple[str, str]]:
     for pattern, hint in RISKY_PATTERNS:
         if re.search(pattern, cmd):
@@ -77,6 +82,9 @@ def main() -> int:
         if not cmd or not isinstance(cmd, str):
             return 0
 
+        if has_inline_bypass(cmd):
+            return 0
+
         if is_already_safe(cmd):
             return 0
 
@@ -92,7 +100,7 @@ def main() -> int:
             "  Suggested fix: prefix with the lg wrapper so output is captured to scratch and only head+tail returns to history.\n"
             f"    {LG_PATH} {cmd}\n"
             "  Or pre-trim explicitly: append `| head -N`, `| tail -N`, or use the dedicated head/tail tool.\n"
-            "  One-off bypass: set CK_LG_ENFORCER_DISABLED=1 in the same shell line.\n"
+            "  One-off bypass for incomplete nudges: prefix the same Bash command with `CK_LG_ENFORCER_DISABLED=1`.\n"
         )
         return 2
     except Exception:

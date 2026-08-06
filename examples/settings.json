@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"<CONTEXT_KIT_DIR>/hooks/lg-enforcer.py\""
+            "command": "sh -c 'f=\"<CONTEXT_KIT_DIR>/hooks/lg-enforcer.py\"; if [ -f \"$f\" ]; then python3 \"$f\"; fi'"
           }
         ]
       }

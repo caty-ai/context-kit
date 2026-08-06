@@ -68,8 +68,8 @@ case_garbage_allowed() {
   fi
 }
 
-case_disable_allowed() {
-  local case_name="disable-allowed"
+case_disable_env_allowed() {
+  local case_name="disable-env-allowed"
   local stdout_file="${TMP_DIR}/disabled.stdout"
   local stderr_file="${TMP_DIR}/disabled.stderr"
   local status_value=0
@@ -81,30 +81,82 @@ case_disable_allowed() {
   if [ "${status_value}" = "0" ] && [ ! -s "${stderr_file}" ]; then
     record_pass "${case_name}"
   else
-    record_fail "${case_name}" "expected CK_LG_ENFORCER_DISABLED=1 to bypass enforcement"
+    record_fail "${case_name}" "expected CK_LG_ENFORCER_DISABLED=1 in the hook environment to bypass enforcement"
   fi
 }
 
-case_head_allowed() {
-  local case_name="piped-head-allowed"
-  run_hook_command 'grep -r foo / | head -n 5'
+case_inline_bypass_allowed() {
+  local case_name="inline-bypass-allowed"
+  run_hook_command 'CK_LG_ENFORCER_DISABLED=1 grep -r foo /'
   if [ "${RUN_STATUS}" = "0" ] && [ ! -s "${RUN_STDERR}" ]; then
     record_pass "${case_name}"
   else
-    record_fail "${case_name}" "expected pre-trimmed command to pass"
+    record_fail "${case_name}" "expected literal same-line CK_LG_ENFORCER_DISABLED=1 to bypass enforcement"
   fi
 }
 
-case_recursive_grep_blocked() {
-  local case_name="recursive-grep-blocked"
-  run_hook_command 'grep -r foo /'
-  if [ "${RUN_STATUS}" = "2" ] &&
-     grep -Fq 'grep -r/-R can flood output' "${RUN_STDERR}" &&
-     grep -Fq "${ROOT}/bin/lg grep -r foo /" "${RUN_STDERR}"; then
-    record_pass "${case_name}"
-  else
-    record_fail "${case_name}" "expected recursive grep to be blocked with lg hint"
-  fi
+case_safe_markers_allowed() {
+  local case_name="safe-markers-allowed"
+  local entry
+  local label
+  local command
+  local commands=(
+    'already-wrapped|lg grep -r foo /'
+    'pipe-head|grep -r foo / | head -n 5'
+    'pipe-tail|grep -r foo / | tail -n 5'
+    'pipe-wc|grep -r foo / | wc -l'
+    'sort-uniq-count|grep -r foo / | sort | uniq -c'
+    'leading-head|head -n 5 /var/log/system.log'
+    'leading-tail|tail -n 5 /var/log/system.log'
+    'redirect-file|grep -r foo / > out.txt'
+  )
+
+  for entry in "${commands[@]}"; do
+    label=${entry%%|*}
+    command=${entry#*|}
+    run_hook_command "${command}"
+    if [ "${RUN_STATUS}" != "0" ] || [ -s "${RUN_STDERR}" ]; then
+      record_fail "${case_name}" "expected safe marker ${label} to pass"
+      return
+    fi
+  done
+
+  record_pass "${case_name}"
+}
+
+case_risky_blocks() {
+  local case_name="risky-blocks"
+  local entry
+  local label
+  local command
+  local hint
+  local cases=(
+    'gh-api-paginate|gh api /repos/openai/openai --paginate|gh api --paginate is unbounded'
+    'find-broad|find /tmp|find on a broad path without -maxdepth can return huge results'
+    'journalctl|journalctl|journalctl without -n can return the whole journal'
+    'dmesg|dmesg|dmesg dumps the full kernel buffer'
+    'cat-log|cat server.log|cat on a .log file can be huge'
+    'cat-var-log|cat /var/log/syslog|cat on /var/log can be huge'
+    'grep-recursive|grep -r foo /|grep -r/-R can flood output'
+  )
+
+  for entry in "${cases[@]}"; do
+    label=${entry%%|*}
+    entry=${entry#*|}
+    command=${entry%%|*}
+    hint=${entry#*|}
+    run_hook_command "${command}"
+    if [ "${RUN_STATUS}" != "2" ] ||
+       ! grep -Fq "${hint}" "${RUN_STDERR}" ||
+       ! grep -Fq "${ROOT}/bin/lg ${command}" "${RUN_STDERR}" ||
+       ! grep -Fq 'One-off bypass for incomplete nudges' "${RUN_STDERR}" ||
+       grep -Fq 'set CK_LG_ENFORCER_DISABLED=1 in the same shell line' "${RUN_STDERR}"; then
+      record_fail "${case_name}" "expected risky command ${label} to be blocked with the lg hint and bypass note"
+      return
+    fi
+  done
+
+  record_pass "${case_name}"
 }
 
 case_empty_path_falls_back_to_lg() {
@@ -124,10 +176,11 @@ case_empty_path_falls_back_to_lg() {
   fi
 }
 
-case_head_allowed
-case_recursive_grep_blocked
+case_safe_markers_allowed
+case_risky_blocks
 case_empty_path_falls_back_to_lg
-case_disable_allowed
+case_inline_bypass_allowed
+case_disable_env_allowed
 case_read_allowed
 case_garbage_allowed
 finish
