@@ -8,6 +8,7 @@ import concurrent.futures
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -26,6 +27,7 @@ DEFAULT_MEILI_COMMAND = "mem-search"
 DEFAULT_SM_ENV = "~/.config/supermemory/env"
 SCRATCH_TTL_DAYS = 7
 SM_API_URL = "https://api.supermemory.ai/v4/search"
+GREP_LINE_NUMBER_RE = re.compile(r":([0-9]+):")
 
 
 class RecallError(Exception):
@@ -341,16 +343,24 @@ def grep_search(
 
     hits: List[Dict[str, Any]] = []
     for line in result.stdout.splitlines():
-        path_text, separator, remainder = line.partition(":")
-        if not separator:
+        candidates = []
+        for match in GREP_LINE_NUMBER_RE.finditer(line):
+            path_text = line[: match.start()]
+            try:
+                path_exists = Path(path_text).exists()
+            except OSError:
+                path_exists = False
+            if path_exists:
+                candidates.append(
+                    (
+                        path_text,
+                        int(match.group(1)),
+                        line[match.end() :],
+                    )
+                )
+        if not candidates:
             continue
-        line_text, separator, text = remainder.partition(":")
-        if not separator:
-            continue
-        try:
-            line_number = int(line_text)
-        except ValueError:
-            continue
+        path_text, line_number, text = max(candidates, key=lambda item: len(item[0]))
         hits.append({"path": path_text, "line": line_number, "text": text})
         if len(hits) >= limit:
             break
@@ -366,13 +376,16 @@ def absolute_pointer_path(value: Any) -> Optional[str]:
     return os.path.abspath(str(path))
 
 
-def meili_absolute_path(value: Any) -> Optional[str]:
+def meili_absolute_path(
+    value: Any, roots: Optional[Sequence[Path]] = None
+) -> Optional[str]:
     if not value:
         return None
     path = expand_configured_path(str(value))
     if path.is_absolute():
         return os.path.abspath(str(path))
-    for root in configured_grep_roots():
+    resolved_roots = configured_grep_roots() if roots is None else roots
+    for root in resolved_roots:
         candidate = root / path
         if candidate.exists():
             return os.path.abspath(str(candidate))
@@ -423,7 +436,9 @@ def file_pointer(item: Dict[str, Any]) -> Optional[str]:
     return absolute
 
 
-def meili_pointer(item: Dict[str, Any]) -> Optional[str]:
+def meili_pointer(
+    item: Dict[str, Any], roots: Optional[Sequence[Path]] = None
+) -> Optional[str]:
     path = pick_first(
         item, ("path", "file", "filepath", "file_path", "source", "source_path")
     )
@@ -438,7 +453,7 @@ def meili_pointer(item: Dict[str, Any]) -> Optional[str]:
     )
     if path is None and is_transcript:
         return meili_transcript_pointer(item)
-    absolute = meili_absolute_path(path)
+    absolute = meili_absolute_path(path, roots)
     if not absolute:
         return None
     line = pick_first(item, ("line", "line_number", "lineNumber", "lineno"))
@@ -447,11 +462,15 @@ def meili_pointer(item: Dict[str, Any]) -> Optional[str]:
     return absolute
 
 
-def hit_pointer(layer: str, item: Dict[str, Any]) -> Optional[str]:
+def hit_pointer(
+    layer: str,
+    item: Dict[str, Any],
+    meili_roots: Optional[Sequence[Path]] = None,
+) -> Optional[str]:
     if layer == "sm":
         return sm_pointer(item)
     if layer == "meili":
-        return meili_pointer(item)
+        return meili_pointer(item, meili_roots)
     return file_pointer(item)
 
 
@@ -460,11 +479,12 @@ def emit_hits(
 ) -> Tuple[List[Dict[str, Any]], int]:
     emitted: List[Dict[str, Any]] = []
     rejected = 0
+    meili_roots = configured_grep_roots() if layer == "meili" else None
     for index, item in enumerate(raw_hits):
         if not isinstance(item, dict):
             rejected += 1
             continue
-        pointer = hit_pointer(layer, item)
+        pointer = hit_pointer(layer, item, meili_roots)
         if not pointer:
             rejected += 1
             continue
@@ -757,7 +777,9 @@ def recall(
         "scratch_path": scratch_path,
         "rejected_hits": rejected_hits,
         "stats": stats,
-        "exit_code": 0 if adapters else 1,
+        "exit_code": 0
+        if any(status["status"] == "ok" for status in statuses.values())
+        else 1,
     }
 
 
@@ -806,7 +828,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--local-only",
         action="store_true",
-        help="select only the meili and grep layers",
+        help="filter sm out of the layers selected by --layers",
     )
     parser.add_argument("--limit", type=int, default=DEFAULT_LIMIT)
     parser.add_argument("--json", action="store_true", help="emit result JSON")
@@ -819,7 +841,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     try:
         if args.limit < 1:
             raise RecallError("--limit must be at least 1")
-        selected = ["meili", "grep"] if args.local_only else parse_layers(args.layers)
+        selected = parse_layers(args.layers)
+        if args.local_only:
+            selected = [layer for layer in selected if layer != "sm"]
+            if not selected:
+                raise RecallError(
+                    "--local-only removed every layer selected by --layers"
+                )
         result = recall(args.query, selected, args.limit)
     except RecallError as exc:
         parser.error(str(exc))
@@ -835,8 +863,24 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print(json.dumps(printable, indent=2, sort_keys=True, ensure_ascii=False))
     else:
         print(render_human(result))
-    return int(result["exit_code"])
+    exit_code = int(result["exit_code"])
+    if exit_code:
+        print(
+            "recall: no selected layer completed; configure an available layer "
+            "or inspect the per-layer errors",
+            file=sys.stderr,
+        )
+    return exit_code
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    return_code = main()
+    try:
+        sys.stdout.flush()
+    except (BrokenPipeError, OSError):
+        return_code = 1
+    try:
+        sys.stderr.flush()
+    except (BrokenPipeError, OSError):
+        return_code = 1
+    os._exit(return_code)

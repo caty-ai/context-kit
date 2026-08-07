@@ -22,7 +22,7 @@ All three layers are selected by default, but optional integrations are never as
 - missing `mem-search`: `meili` reports `status=skip` without starting a subprocess;
 - an explicit `CK_RECALL_ROOTS` value that contains no existing roots: `grep` reports `status=skip reason=no roots`.
 
-Every selected layer always emits one `ok`, `skip`, or `error` status with a reason. An error in one layer does not cancel the other layers. If at least one selected layer was runnable and attempted, the command exits `0`, even when that attempted layer reports an error. A selection containing only unavailable layers exits nonzero after printing its skip statuses and writing the result dump.
+Every selected layer always emits one `ok`, `skip`, or `error` status with a reason. An error in one layer does not cancel the other layers. The command exits `0` when at least one attempted layer completes with `status=ok`, including a successful zero-hit search. It exits `1` when every attempted layer errors or when no selected layer can be attempted; skipped layers do not count as attempts. Nonzero runs write configuration/error guidance to stderr so stdout remains machine-readable.
 
 ## Prerequisites
 
@@ -63,7 +63,7 @@ recall "release decision" --layers grep --limit 5
 recall "release decision" --layers meili,grep --json
 ```
 
-`--local-only` maps directly to `meili,grep` and therefore takes precedence over `--layers` when both are supplied. Repeated layer names are de-duplicated while preserving their first position. The grep query keeps the source command's regular-expression behavior.
+`--local-only` filters `sm` out of the layer set selected by `--layers`; it does not reset that selection. Thus the default becomes `meili,grep`, while `--layers grep --local-only` remains grep-only. A selection that contains only `sm` becomes invalid after filtering. Repeated layer names are de-duplicated while preserving their first position. The grep query keeps the source command's regular-expression behavior.
 
 ## Layer setup
 
@@ -86,6 +86,8 @@ export CK_SM_CONTAINER="my-memory-container"
 ```
 
 The compatibility name `SUPERMEMORY_CC_API_KEY` is also accepted directly and in the env file. The env file is parsed as simple `KEY=VALUE` or `export KEY=VALUE` lines; it is never sourced as shell code. There is deliberately no default container.
+
+Warning: the standard-library HTTP client follows redirects and can forward the bearer token to a redirected host. Keep the default Supermemory API host pinned unless you trust the complete redirect chain.
 
 ### Meili / `mem-search` (`meili`)
 
@@ -159,11 +161,11 @@ It then prints the rejected-hit count and scratch path, followed by up to `--lim
 
 Hits are merged round-robin in selected-layer order before the final top limit is applied. Supermemory pointers contain the memory ID and configured container tag; local and Meili pointers are absolute file paths, with line numbers when supplied. Hits without usable provenance are rejected rather than emitted.
 
-`--json` preserves the same information under `layers_queried`, `per_layer`, `hits`, `top_hits`, `scratch_path`, `rejected_hits`, and `stats`. Each selected `per_layer` entry always includes `status`, `reason`, `hits`, and `latency_ms`. The `hits` array contains the full round-robin merge; `top_hits` contains the final bounded view.
+`--json` preserves the same information under `layers_queried`, `per_layer`, `hits`, `top_hits`, `scratch_path`, `rejected_hits`, and `stats`. Each selected `per_layer` entry always includes `status`, `reason`, `hits`, and `latency_ms`. The `hits` array contains the full round-robin merge; `top_hits` contains the final bounded view. The personal source tool's separate stats-JSONL sink was intentionally omitted from this public kit; stats remain in the command result and scratch dump.
 
 Every invocation that passes argument validation writes a complete Markdown dump named `recall-*.md` through the kit scratch contract. Its frontmatter includes `createdAt` and `expiresAt` with the kit's seven-day scratch TTL; cleanup remains user-owned. A whole-command failure, such as an unwritable result directory, prints a clear English `recall: unexpected failure: ...` message to stderr and exits nonzero.
 
-Each adapter has its own ten-second timeout. The parallel fan-out also has a ten-second outer deadline with a small scheduling allowance; unfinished layers report `status=error reason=timeout after 10s` without delaying result assembly further.
+Each adapter has its own ten-second timeout. The parallel fan-out also has a ten-second outer deadline with a small scheduling allowance; unfinished layers report `status=error reason=timeout after 10s` without delaying result assembly. After flushing stdout and stderr, the CLI hard-exits with its result code, so a stuck layer thread cannot keep the process alive beyond the outer deadline plus normal output overhead.
 
 ## Verify
 
