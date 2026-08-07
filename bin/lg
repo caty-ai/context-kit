@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+# lg - large output wrapper that persists full output to scratch and returns a
+# bounded preview to the caller.
+
+set -u
+
+DEFAULT_HEAD_LINES=40
+DEFAULT_TAIL_LINES=40
+DEFAULT_TTL_DAYS=7
+KEEP_TMP_OUT=0
+
+coerce_numeric_or_default() {
+  local value="$1"
+  local fallback="$2"
+
+  case "${value}" in
+    ''|*[!0-9]*)
+      printf '%s\n' "${fallback}"
+      ;;
+    *)
+      printf '%s\n' "${value}"
+      ;;
+  esac
+}
+
+default_scratch_root() {
+  local scratch_base
+
+  if [ -n "${HOME:-}" ]; then
+    scratch_base="${HOME}/.claude/scratch"
+  else
+    scratch_base="${TMPDIR:-/tmp}/context-kit-scratch"
+  fi
+
+  if [ -n "${HOME:-}" ]; then
+    printf '%s/%s/memory\n' "${scratch_base}" "${CK_AGENT:-agent}"
+  else
+    printf '%s\n' "${scratch_base}"
+  fi
+}
+
+warn_scratch_failure() {
+  if [ "${SCRATCH_WARNING_EMITTED}" -eq 0 ]; then
+    printf '[lg] scratch unavailable; using fallback output mode (%s)\n' "$1" >&2
+    SCRATCH_WARNING_EMITTED=1
+  fi
+  SCRATCH_OK=0
+}
+
+if [ $# -eq 0 ]; then
+  echo "usage: lg <command> [args...]" >&2
+  exit 64
+fi
+
+HEAD_LINES=$(coerce_numeric_or_default "${LG_HEAD:-}" "${DEFAULT_HEAD_LINES}")
+TAIL_LINES=$(coerce_numeric_or_default "${LG_TAIL:-}" "${DEFAULT_TAIL_LINES}")
+TTL_DAYS=$(coerce_numeric_or_default "${LG_TTL_DAYS:-}" "${DEFAULT_TTL_DAYS}")
+
+if [ -n "${CK_SCRATCH_DIR:-}" ]; then
+  SCRATCH_ROOT="${CK_SCRATCH_DIR}"
+  SCRATCH_ROOT_IS_DEFAULT=0
+else
+  SCRATCH_ROOT=$(default_scratch_root)
+  SCRATCH_ROOT_IS_DEFAULT=1
+fi
+SCRATCH_WARNING_EMITTED=0
+SCRATCH_OK=1
+SCRATCH_FILE=""
+
+TS=$(date "+%Y-%m-%dT%H-%M-%S")
+CREATED=$(date "+%Y-%m-%dT%H:%M:%S")
+if EXPIRES=$(date -v+"${TTL_DAYS}"d "+%Y-%m-%dT%H:%M:%S" 2>/dev/null); then
+  :
+else
+  EXPIRES=$(date -d "+${TTL_DAYS} days" "+%Y-%m-%dT%H:%M:%S")
+fi
+
+CMD_SLUG=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '-' | sed 's/--*/-/g; s/^-//; s/-$//' | cut -c1-32)
+[ -z "$CMD_SLUG" ] && CMD_SLUG="cmd"
+
+SCRATCH_FILE="${SCRATCH_ROOT}/scratch-${TS}-${CMD_SLUG}.md"
+TMP_OUT=$(mktemp -t lg.XXXXXX)
+cleanup() {
+  if [ "${KEEP_TMP_OUT}" -eq 0 ]; then
+    rm -f "$TMP_OUT"
+  fi
+}
+trap cleanup EXIT
+
+if ! mkdir -p "$SCRATCH_ROOT" 2>/dev/null; then
+  warn_scratch_failure "unable to create scratch directory: $SCRATCH_ROOT"
+fi
+
+if [ "$SCRATCH_OK" -eq 1 ] && [ "$SCRATCH_ROOT_IS_DEFAULT" -eq 1 ]; then
+  if ! chmod 700 "$SCRATCH_ROOT" 2>/dev/null; then
+    warn_scratch_failure "unable to secure scratch directory permissions: $SCRATCH_ROOT"
+  fi
+fi
+
+if [ "$SCRATCH_OK" -eq 1 ]; then
+  if ! (
+    {
+    printf -- '---\n'
+    printf 'type: scratch\n'
+    printf 'mode: proactive-lg\n'
+    printf 'cmd: %s\n' "$*"
+    printf 'createdAt: %s\n' "$CREATED"
+    printf 'expiresAt: %s\n' "$EXPIRES"
+    printf -- '---\n\n'
+    printf '## Command\n\n```sh\n%s\n```\n\n## Output\n\n```\n' "$*"
+    } > "$SCRATCH_FILE"
+  ) 2>/dev/null; then
+    warn_scratch_failure "unable to initialize scratch file: $SCRATCH_FILE"
+  fi
+fi
+
+"$@" >"$TMP_OUT" 2>&1
+EXIT_CODE=$?
+
+if [ "$SCRATCH_OK" -eq 1 ]; then
+  if ! (cat "$TMP_OUT" >> "$SCRATCH_FILE") 2>/dev/null; then
+    warn_scratch_failure "unable to append command output: $SCRATCH_FILE"
+  fi
+fi
+
+if [ "$SCRATCH_OK" -eq 1 ]; then
+  if ! (printf '\n```\n\n## Exit\n\nexit_code: %d\n' "$EXIT_CODE" >> "$SCRATCH_FILE") 2>/dev/null; then
+    warn_scratch_failure "unable to finalize scratch file: $SCRATCH_FILE"
+  fi
+fi
+
+SIZE=$(wc -c < "$TMP_OUT" | tr -d ' ')
+LINES=$(wc -l < "$TMP_OUT" | tr -d ' ')
+TOTAL_SHOWN_LINES=$((HEAD_LINES + TAIL_LINES))
+
+if [ "$SCRATCH_OK" -eq 1 ] && [ "$LINES" -gt "$TOTAL_SHOWN_LINES" ]; then
+  OMITTED=$((LINES - HEAD_LINES - TAIL_LINES))
+  head -n "$HEAD_LINES" "$TMP_OUT"
+  printf '\n... [%d lines omitted / %d bytes — full output: %s] ...\n\n' "$OMITTED" "$SIZE" "$SCRATCH_FILE"
+  tail -n "$TAIL_LINES" "$TMP_OUT"
+elif [ "$SCRATCH_OK" -eq 0 ] && [ "$LINES" -gt "$TOTAL_SHOWN_LINES" ]; then
+  OMITTED=$((LINES - HEAD_LINES - TAIL_LINES))
+  KEEP_TMP_OUT=1
+  head -n "$HEAD_LINES" "$TMP_OUT"
+  printf '... [%d lines omitted / %d bytes - scratch unavailable, full output temp: %s] ...\n' "$OMITTED" "$SIZE" "$TMP_OUT"
+  tail -n "$TAIL_LINES" "$TMP_OUT"
+else
+  cat "$TMP_OUT"
+fi
+
+if [ "$SCRATCH_OK" -eq 1 ]; then
+  printf '\n[lg] full output preserved: %s (TTL %d days, exit_code=%d, %d lines, %d bytes)\n' \
+    "$SCRATCH_FILE" "$TTL_DAYS" "$EXIT_CODE" "$LINES" "$SIZE"
+fi
+
+exit "$EXIT_CODE"
