@@ -4,7 +4,7 @@
 
 `lg` is a proactive wrapper for shell commands that may produce too much output for an agent turn. It captures combined stdout and stderr, writes the full transcript to a scratch file, and returns either the complete output or a bounded head-and-tail preview.
 
-This exists because a reactive `PostToolUse` hook cannot replace the standard tool response that already entered history. `lg` solves that earlier in the flow by wrapping the command before it runs.
+This exists because a reactive `PostToolUse` hook cannot replace the standard tool response that already entered history. `lg` solves that earlier in the flow by wrapping the command before it runs. Use [`scratch-persist`](scratch-persist.md) as the reactive safety net for verbose calls that were not wrapped proactively.
 
 ## Prerequisites
 
