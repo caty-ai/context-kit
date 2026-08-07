@@ -61,7 +61,7 @@ flowchart TB
 
 | Piece | Entry point | Trigger | Runtime | Doc |
 | --- | --- | --- | --- | --- |
-| lg | `bin/lg` + `hooks/lg-enforcer.py` | CLI + `PreToolUse: Bash` | Python 3.9+ | [lg.md](lg.md) |
+| lg | `bin/lg` + `hooks/lg-enforcer.py` | CLI + `PreToolUse: Bash` | Bash + Python 3.9+ (enforcer) | [lg.md](lg.md) |
 | scratch-persist | `hooks/scratch-persist.sh` → `.py` | `PostToolUse` (all tools) | Python 3.9+ | [scratch-persist.md](scratch-persist.md) |
 | brief-validator | `hooks/validate-subagent-brief.sh` → `.py` | `PreToolUse: Agent\|Task` | Python 3.9+ | [brief-validator.md](brief-validator.md) |
 | safety-hooks | `hooks/rm-enforcer.py`, `hooks/private-repo-enforcer.mjs`, `hooks/api-key-leak-detector.mjs` | `PreToolUse: Bash` (+ `Write\|Edit` for keys) | Python 3.9+ / Node 18+ | [safety-hooks.md](safety-hooks.md) |

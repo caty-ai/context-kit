@@ -18,7 +18,7 @@
 
 ## フック配線マップ
 
-すべてのフックエントリは、ガード付きの形式 `sh -c 'f="<CONTEXT_KIT_DIR>/hooks/…"; if [ -f "$f" ]; then …; fi'` を使用します（safety トリオは、さらにインタプリタの有無も確認します）。正確なコマンドについては [`examples/settings.json`](../examples/settings.json) を参照してください。
+すべてのフックエントリは、ガード付きの形式 `sh -c 'f="<CONTEXT_KIT_DIR>/hooks/…"; if [ -f "$f" ]; then …; fi'` を使用します。インタプリタの有無も、必要なすべての箇所で確認されます — `lg-enforcer` と safety トリオでは配線内で、`scratch-persist` と brief validator では `sh` ランチャー内で確認します。正確なコマンドについては [`examples/settings.json`](../examples/settings.json) を参照してください。
 
 | フック | イベント | マッチャー |
 | --- | --- | --- |
@@ -40,7 +40,7 @@
 | 変数 | 用途 | デフォルト |
 | --- | --- | --- |
 | `CK_AGENT` | `CK_SCRATCH_DIR` が未設定かつ `HOME` が利用可能な場合のスクラッチサブディレクトリ名 | `agent` |
-| `CK_SCRATCH_DIR` | 永続化を行うすべての要素が使用するスクラッチディレクトリ。設定されたディレクトリはそのまま使用され、既存のパーミッションが維持される | `HOME` が設定されている場合は `${HOME}/.claude/scratch/${CK_AGENT:-agent}/memory`、それ以外は `${TMPDIR:-/tmp}/context-kit-scratch` |
+| `CK_SCRATCH_DIR` | 永続化を行うすべての要素が使用するスクラッチディレクトリ。設定されたディレクトリの既存パーミッションは維持される。絶対パスを推奨 — 相対値の解決は要素ごとに異なる（下記スクラッチ契約を参照） | `HOME` が設定されている場合は `${HOME}/.claude/scratch/${CK_AGENT:-agent}/memory`、それ以外は `${TMPDIR:-/tmp}/context-kit-scratch` |
 
 ### lg（[詳細](lg.md)）
 
@@ -95,7 +95,7 @@
 
 永続化を行うすべての要素は、同じルールに従います。
 
-- **場所** — `CK_SCRATCH_DIR`、または上記の共通デフォルトです。ファイルはこのディレクトリ直下にフラットに書き込まれます。
+- **場所** — `CK_SCRATCH_DIR`、または上記の共通デフォルトです。ファイルはこのディレクトリ直下にフラットに書き込まれます。`CK_SCRATCH_DIR` は絶対パスを推奨します。相対値の解決は要素ごとに異なり、API キーフックはデフォルトのスクラッチルート配下に解決する一方、`lg`・`scratch-persist`・`recall` はプロセスの作業ディレクトリ基準で解決します（`recall` はさらに `~` と環境変数を展開します）。
 - **パーミッション** — キットが作成するデフォルトルートは `0700` に強化されます。結果ファイルと証跡ファイルは `0600` です。ユーザーが指定した `CK_SCRATCH_DIR` は既存のパーミッションのままであり、その保護は運用者の責任です。
 - **命名規則** — `scratch-<timestamp>-<tool>.md`（lg と scratch-persist）、`recall-*.md`（recall の結果ダンプ）、そして API キーフックが出力する、マスク済みのローテーション証跡レポートです。スクラッチへの書き込みに失敗した場合、`lg` は `${TMPDIR:-/tmp}` に `lg.` という一時ファイルを残すことがあります。
 - **フロントマター** — `createdAt` と `expiresAt`。7日 TTL の規約に従います（該当する場合は `LG_TTL_DAYS`）。

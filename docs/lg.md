@@ -43,7 +43,7 @@ Update either `~/.claude/settings.json` or `<project>/.claude/settings.json`. Me
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'f=\"<CONTEXT_KIT_DIR>/hooks/lg-enforcer.py\"; if [ -f \"$f\" ]; then python3 \"$f\"; fi'"
+            "command": "sh -c 'f=\"<CONTEXT_KIT_DIR>/hooks/lg-enforcer.py\"; if [ -f \"$f\" ] && [ -r \"$f\" ] && command -v python3 >/dev/null 2>&1; then python3 \"$f\"; fi'"
           }
         ]
       }
@@ -58,7 +58,7 @@ Restart Claude Code or run `/hooks` so the new wiring is picked up.
 
 ## Wiring Notes
 
-The hook command above is intentionally fail-open only when the file is absent. If the file exists, `python3` runs normally and its exit status propagates exactly.
+The hook command above is intentionally fail-open when the file is absent, unreadable, or `python3` is unavailable. When all three checks pass, `python3` runs normally and its exit status propagates exactly.
 That fail-open form prevents an unreplaced or wrong hook path from blocking Bash before the real hook is in place.
 
 Do not wire a bare command such as `python3 "<wrong-path>/hooks/lg-enforcer.py"` directly. If that path is wrong, Python exits `2`, and Claude Code can treat that as a hook failure that blocks every Bash command.
@@ -144,8 +144,8 @@ Exact wired-command checks:
 Run these after replacing `<CONTEXT_KIT_DIR>` with your actual checkout path.
 
 ```sh
-echo '{"tool_name":"Bash","tool_input":{"command":"ls"}}' | sh -c 'f="<CONTEXT_KIT_DIR>/hooks/lg-enforcer.py"; if [ -f "$f" ]; then python3 "$f"; fi'; echo $?
-echo '{"tool_name":"Bash","tool_input":{"command":"grep -r foo /"}}' | sh -c 'f="<CONTEXT_KIT_DIR>/hooks/lg-enforcer.py"; if [ -f "$f" ]; then python3 "$f"; fi'; echo $?
+echo '{"tool_name":"Bash","tool_input":{"command":"ls"}}' | sh -c 'f="<CONTEXT_KIT_DIR>/hooks/lg-enforcer.py"; if [ -f "$f" ] && [ -r "$f" ] && command -v python3 >/dev/null 2>&1; then python3 "$f"; fi'; echo $?
+echo '{"tool_name":"Bash","tool_input":{"command":"grep -r foo /"}}' | sh -c 'f="<CONTEXT_KIT_DIR>/hooks/lg-enforcer.py"; if [ -f "$f" ] && [ -r "$f" ] && command -v python3 >/dev/null 2>&1; then python3 "$f"; fi'; echo $?
 ```
 
 Expected results:

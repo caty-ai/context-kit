@@ -154,7 +154,7 @@ export PATH="$PWD/bin:$PATH"
 for t in tests/*.sh; do bash "$t"; done
 ```
 
-Every line of every suite should end in `PASS`.
+Every test case prints a `PASS` line — there should be no `FAIL` anywhere in the output (two suites also end with a zero-failure summary line).
 
 <details>
 <summary>If something goes wrong</summary>
@@ -181,6 +181,8 @@ The kit is built on the assumption that it will sometimes break — and that bre
 - **Independent pieces** — each piece is its own settings block and its own file. There is no shared daemon and no shared state between them.
 - **One edit to remove** — delete the kit's blocks from `settings.json` and restart. Scratch notes are plain files with a documented one-line cleanup command.
 
+One honest limit: the guards are pattern-based tripwires. They catch the common shapes of these accidents, not every possible variant — and the known gaps are listed openly in the documentation.
+
 The details live in reader-specific docs, one level deeper.
 
 ---
@@ -191,8 +193,8 @@ The details live in reader-specific docs, one level deeper.
 
 | If you want | Read |
 | --- | --- |
-| The architecture, design principles, and an engineer's quick start | [Engineering guide](docs/engineering.md) |
-| Every environment variable, file contract, and exit-code rule | [Reference](docs/reference.md) |
+| The architecture, design principles, and an engineer's quick start | [Engineering guide](docs/engineering.md)（[日本語](docs/engineering.ja.md)） |
+| Every environment variable, file contract, and exit-code rule | [Reference](docs/reference.md)（[日本語](docs/reference.ja.md)） |
 | One piece at a time, with install and verify steps | [lg](docs/lg.md) ・ [scratch-persist](docs/scratch-persist.md) ・ [brief-validator](docs/brief-validator.md) ・ [safety-hooks](docs/safety-hooks.md) ・ [recall](docs/recall.md) |
 
 ---

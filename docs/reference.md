@@ -18,7 +18,7 @@ The exact contracts: every environment variable, the scratch-file rules, exit-co
 
 ## Hook wiring map
 
-All hook entries use the guarded form `sh -c 'f="<CONTEXT_KIT_DIR>/hooks/…"; if [ -f "$f" ]; then …; fi'` (the safety trio additionally checks interpreter availability). See [`examples/settings.json`](../examples/settings.json) for the exact commands.
+All hook entries use the guarded form `sh -c 'f="<CONTEXT_KIT_DIR>/hooks/…"; if [ -f "$f" ]; then …; fi'`. Interpreter availability is also verified everywhere it is needed — in the wiring for `lg-enforcer` and the safety trio, and inside the `sh` launchers for `scratch-persist` and the brief validator. See [`examples/settings.json`](../examples/settings.json) for the exact commands.
 
 | Hook | Event | Matcher |
 | --- | --- | --- |
@@ -40,7 +40,7 @@ Export hook-related variables from the shell, launcher, or app wrapper that star
 | Variable | Purpose | Default |
 | --- | --- | --- |
 | `CK_AGENT` | Scratch subdirectory name when `CK_SCRATCH_DIR` is unset and `HOME` is available | `agent` |
-| `CK_SCRATCH_DIR` | Scratch directory used by every persisting piece. The configured directory is used as-is and keeps its own permissions | `${HOME}/.claude/scratch/${CK_AGENT:-agent}/memory` when `HOME` is set; otherwise `${TMPDIR:-/tmp}/context-kit-scratch` |
+| `CK_SCRATCH_DIR` | Scratch directory used by every persisting piece. A configured directory keeps its own permissions. Use an absolute path — relative values are resolved per piece (see the scratch contract below) | `${HOME}/.claude/scratch/${CK_AGENT:-agent}/memory` when `HOME` is set; otherwise `${TMPDIR:-/tmp}/context-kit-scratch` |
 
 ### lg ([details](lg.md))
 
@@ -95,7 +95,7 @@ Export hook-related variables from the shell, launcher, or app wrapper that star
 
 Every persisting piece follows the same rules:
 
-- **Location** — `CK_SCRATCH_DIR`, or the shared default shown above. Files are written flat into this directory.
+- **Location** — `CK_SCRATCH_DIR`, or the shared default shown above. Files are written flat into this directory. Prefer an absolute `CK_SCRATCH_DIR`: a relative value is resolved per piece — the API-key hook resolves it under the default scratch root, while `lg`, `scratch-persist`, and `recall` resolve it against the process working directory (`recall` also expands `~` and environment variables).
 - **Permissions** — the kit-created default root is hardened to `0700`; result and evidence files are `0600`. A user-supplied `CK_SCRATCH_DIR` keeps its existing permissions — protecting it is the operator's responsibility.
 - **Naming** — `scratch-<timestamp>-<tool>.md` (lg and scratch-persist), `recall-*.md` (recall result dumps), plus the API-key hook's redacted rotation-evidence reports. On scratch failure, `lg` can leave `lg.` temp files in `${TMPDIR:-/tmp}`.
 - **Frontmatter** — `createdAt` and `expiresAt`, with a 7-day TTL convention (`LG_TTL_DAYS` where applicable).

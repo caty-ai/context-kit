@@ -17,7 +17,7 @@ context-kit は、その事故をツール実行のその場所で機械的に�
 
 **エージェントの作業机に、5つの装備を。**
 
-🔧 [エンジニア向けドキュメント](docs/engineering.md) ｜ 📘 [詳細仕様](docs/reference.md)
+🔧 [エンジニア向けドキュメント](docs/engineering.ja.md) ｜ 📘 [詳細仕様](docs/reference.ja.md)
 
 </div>
 
@@ -154,7 +154,7 @@ export PATH="$PWD/bin:$PATH"
 for t in tests/*.sh; do bash "$t"; done
 ```
 
-全スイートの全行が `PASS` で終われば成功です。
+全テストケースが `PASS` 行を出せば成功です。出力のどこにも `FAIL` がないことを確認してください（2つのスイートは末尾に失敗ゼロのサマリ行も出ます）。
 
 <details>
 <summary>うまくいかないとき</summary>
@@ -181,6 +181,8 @@ for t in tests/*.sh; do bash "$t"; done
 - **装備は独立** — 各装備は独立した設定ブロックと独立したファイルです。共有デーモンも装備間の共有状態もありません。
 - **消すのは1操作** — `settings.json` からキットのブロックを消して再起動するだけ。退避ノートはただのファイルで、1行の掃除コマンドがドキュメントにあります。
 
+正直な限界をひとつ: ガードはパターン照合式の仕掛け線です。この4つの事故の「よくある形」を捕まえるもので、あらゆる変種を捕まえるものではありません——既知の取りこぼしはドキュメントに公開で列挙してあります。
+
 詳細は、読者別のドキュメントに1段深く分けてあります。
 
 ---
@@ -191,8 +193,8 @@ for t in tests/*.sh; do bash "$t"; done
 
 | 読みたいこと | 場所 |
 | --- | --- |
-| アーキテクチャ・設計原則・エンジニア向けクイックスタート | [Engineering guide](docs/engineering.md) |
-| 全環境変数・ファイル契約・終了コードの規則 | [Reference](docs/reference.md) |
+| アーキテクチャ・設計原則・エンジニア向けクイックスタート | [エンジニアリングガイド](docs/engineering.ja.md)（[English](docs/engineering.md)） |
+| 全環境変数・ファイル契約・終了コードの規則 | [詳細仕様](docs/reference.ja.md)（[English](docs/reference.md)） |
 | 装備を1つずつ、導入と検証の手順つきで | [lg](docs/lg.md) ・ [scratch-persist](docs/scratch-persist.md) ・ [brief-validator](docs/brief-validator.md) ・ [safety-hooks](docs/safety-hooks.md) ・ [recall](docs/recall.md) |
 
 ---

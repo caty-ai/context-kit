@@ -4,7 +4,7 @@
 
 [🇺🇸 English](README.md) ｜ [🇯🇵 日本語](README.ja.md) ｜ **🇨🇳 简体中文** ｜ [🇹🇭 ไทย](README.th.md)
 
-![context-kit — context hygiene kit for a single AI agent](assets/readme/hero.png)
+![context-kit — 为单个 AI agent 打造的上下文卫生工具包](assets/readme/hero.png)
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![python](https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white)
@@ -154,7 +154,7 @@ export PATH="$PWD/bin:$PATH"
 for t in tests/*.sh; do bash "$t"; done
 ```
 
-每个套件、每一行都应该以 `PASS` 结尾。
+每个测试用例都会打印一行 `PASS`——输出里不应该出现任何 `FAIL`（其中两个套件末尾还会附一行零失败的汇总）。
 
 <details>
 <summary>如果出了问题</summary>
@@ -181,6 +181,8 @@ for t in tests/*.sh; do bash "$t"; done
 - **各装备互相独立** — 每件装备都有自己独立的配置块和文件。它们之间没有共享的守护进程，也没有共享状态。
 - **移除只需一步** — 从 `settings.json` 里删掉这套装备的配置块，然后重启即可。退避笔记就是普通文件，文档里附有一行清理命令。
 
+说句实话，这套装备也有边界: 这些防线本质上是基于模式匹配的绊线（tripwire）。它们能拦住这些事故最常见的形态，但不是每一种变体都能防住——已知的漏洞会在文档里公开列出。
+
 更多细节按不同读者的需要，分别放在更深一层的文档里。
 
 ---
@@ -191,8 +193,8 @@ for t in tests/*.sh; do bash "$t"; done
 
 | 如果你想了解 | 请阅读 |
 | --- | --- |
-| 架构、设计原则，以及给工程师看的快速上手 | [工程指南](docs/engineering.md) |
-| 每个环境变量、文件约定、退出码规则 | [参考文档](docs/reference.md) |
+| 架构、设计原则，以及给工程师看的快速上手 | [工程指南](docs/engineering.md)（[日本語](docs/engineering.ja.md)） |
+| 每个环境变量、文件约定、退出码规则 | [参考文档](docs/reference.md)（[日本語](docs/reference.ja.md)） |
 | 逐件了解每个装备，含安装和验证步骤 | [lg](docs/lg.md) ・ [scratch-persist](docs/scratch-persist.md) ・ [brief-validator](docs/brief-validator.md) ・ [safety-hooks](docs/safety-hooks.md) ・ [recall](docs/recall.md) |
 
 ---
