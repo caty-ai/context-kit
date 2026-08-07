@@ -1,22 +1,10 @@
 #!/usr/bin/env bash
-# scratch-persist - fail-open launcher for the reactive PostToolUse hook.
+# validate-subagent-brief - fail-open launcher for the Agent/Task PreToolUse hook.
 
 set -u
 
-if [ "${CK_SCRATCH_DISABLED:-0}" = "1" ]; then
+if [ "${CK_SKIP_BRIEF_VALIDATION:-0}" = "1" ]; then
   exit 0
-fi
-
-export CK_SCRATCH_THRESHOLD="${CK_SCRATCH_THRESHOLD:-5000}"
-
-if [ -n "${CK_SCRATCH_DIR:-}" ]; then
-  export CK_SCRATCH_DIR_IS_DEFAULT=0
-elif [ -n "${HOME:-}" ]; then
-  export CK_SCRATCH_DIR="${HOME}/.claude/scratch/${CK_AGENT:-agent}/memory"
-  export CK_SCRATCH_DIR_IS_DEFAULT=1
-else
-  export CK_SCRATCH_DIR="${TMPDIR:-/tmp}/context-kit-scratch"
-  export CK_SCRATCH_DIR_IS_DEFAULT=1
 fi
 
 # This duplicated launcher pattern is intentionally copy-kept so each hook stays single-file installable.
@@ -43,10 +31,25 @@ if command -v readlink >/dev/null 2>&1; then
 fi
 
 BODY_DIR=$(cd "$(dirname "${SCRIPT_PATH}")" 2>/dev/null && pwd -P) || exit 0
-BODY="${BODY_DIR}/scratch-persist.py"
-if [ ! -f "${BODY}" ] || ! command -v python3 >/dev/null 2>&1; then
+BODY="${BODY_DIR}/validate-subagent-brief.py"
+if [ ! -f "${BODY}" ] || [ ! -r "${BODY}" ] || ! command -v python3 >/dev/null 2>&1; then
   exit 0
 fi
 
-python3 "${BODY}" 2>/dev/null || true
+ERROR_FILE=$(mktemp -t ck-brief-validator.XXXXXX 2>/dev/null) || exit 0
+cleanup() {
+  rm -f "${ERROR_FILE}" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+python3 "${BODY}" >/dev/null 2>"${ERROR_FILE}"
+STATUS=$?
+if [ "${STATUS}" -ne 2 ]; then
+  exit 0
+fi
+
+if grep -Fq '[validate-subagent-brief] Blocked ' "${ERROR_FILE}" 2>/dev/null; then
+  cat "${ERROR_FILE}" >&2
+  exit 2
+fi
 exit 0
