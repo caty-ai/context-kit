@@ -76,7 +76,7 @@ flowchart TB
 - **`CK_` environment prefix** — all kit configuration and bypass variables share one namespace ([full table](reference.md)). Bypasses are explicit and visible: same-line tokens for Bash, process environment for everything else.
 - **One scratch contract** — every piece that persists anything writes into the same scratch directory layout with the same permissions and the same 7-day-TTL frontmatter. Cleanup is deliberately user-owned (one documented `find` one-liner).
 - **Pattern-based, honestly scoped** — the guards are regex-level safeguards, not shell parsers. Known gaps are listed in [safety-hooks.md](safety-hooks.md) rather than papered over.
-- **English-only user-facing messages** — every corrective message an agent or user can see is English, so the kit behaves the same in any locale.
+- **English-only prose** — every corrective message is written in English, so the kit reads the same in any locale. One deliberate exception: the brief validator's default section tokens are the Japanese headings of the upstream [family-dev-handbook](https://github.com/caty-ai/family-dev-handbook) contract, overridable via `CK_BRIEF_REQUIRED_SECTIONS`.
 
 ---
 

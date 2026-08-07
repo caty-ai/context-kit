@@ -81,7 +81,7 @@ Run the self-check from the repository root:
 bash tests/test_brief_validator.sh
 ```
 
-Blocked probe: this must print an English corrective message that names all three missing canonical tokens and exit `2`.
+Blocked probe: this must print a corrective message (English prose naming the three missing canonical tokens — the tokens themselves are Japanese) and exit `2`.
 
 ```sh
 python3 -c 'import json; print(json.dumps({"tool_name":"Agent","tool_input":{"subagent_type":"executor","prompt":"x" * 500}}))' | sh -c 'f="<CONTEXT_KIT_DIR>/hooks/validate-subagent-brief.sh"; if [ -f "$f" ]; then bash "$f"; fi'; echo $?
