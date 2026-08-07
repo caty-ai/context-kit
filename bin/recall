@@ -1,0 +1,886 @@
+#!/usr/bin/env python3
+"""Query configured memory layers and merge their provenance-bearing results."""
+
+from __future__ import annotations
+
+import argparse
+import concurrent.futures
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
+from urllib import error, request
+
+
+LAYERS = ("sm", "meili", "grep")
+DEFAULT_LIMIT = 8
+DEFAULT_TIMEOUT = 10
+OUTER_TIMEOUT_SLACK_SECONDS = 0.05
+DEFAULT_MEILI_COMMAND = "mem-search"
+DEFAULT_SM_ENV = "~/.config/supermemory/env"
+SCRATCH_TTL_DAYS = 7
+SM_API_URL = "https://api.supermemory.ai/v4/search"
+GREP_LINE_NUMBER_RE = re.compile(r":([0-9]+):")
+
+
+class RecallError(Exception):
+    """A user-facing error that should stop the CLI."""
+
+
+Adapter = Callable[[str, int], List[Dict[str, Any]]]
+
+
+def compact_text(value: Any, limit: int = 240) -> str:
+    if value is None:
+        return ""
+    text = " ".join(str(value).split())
+    if len(text) > limit:
+        return text[: limit - 3].rstrip() + "..."
+    return text
+
+
+def utc_z(now: Optional[datetime] = None) -> str:
+    value = now or datetime.now(timezone.utc)
+    return (
+        value.astimezone(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+
+
+def parse_layers(value: str) -> List[str]:
+    selected: List[str] = []
+    for item in value.split(","):
+        layer = item.strip().lower()
+        if not layer:
+            continue
+        if layer not in LAYERS:
+            raise RecallError(
+                "unknown layer {!r}; expected sm, meili, grep".format(layer)
+            )
+        if layer not in selected:
+            selected.append(layer)
+    if not selected:
+        raise RecallError("--layers must include at least one layer")
+    return selected
+
+
+def expand_configured_path(value: str) -> Path:
+    """Expand variables and HOME-backed tildes without consulting passwd."""
+    expanded = os.path.expandvars(value)
+    if expanded == "~" or expanded.startswith("~/"):
+        home = os.environ.get("HOME")
+        if home:
+            expanded = home + expanded[1:]
+    return Path(expanded)
+
+
+def default_scratch_dir() -> Path:
+    home = os.environ.get("HOME")
+    if home:
+        agent = os.environ.get("CK_AGENT") or "agent"
+        return Path(home) / ".claude" / "scratch" / agent / "memory"
+    return Path(os.environ.get("TMPDIR") or "/tmp") / "context-kit-scratch"
+
+
+def resolve_scratch_dir() -> Tuple[Path, bool]:
+    configured = os.environ.get("CK_SCRATCH_DIR")
+    if configured:
+        configured_path = expand_configured_path(configured)
+        if not configured_path.is_absolute():
+            configured_path = Path.cwd() / configured_path
+        return Path(os.path.abspath(str(configured_path))), False
+    return Path(os.path.abspath(str(default_scratch_dir()))), True
+
+
+def prepare_scratch_dir() -> Tuple[Path, bool]:
+    scratch_dir, is_default = resolve_scratch_dir()
+    scratch_dir.mkdir(parents=True, exist_ok=True)
+    if is_default:
+        scratch_dir.chmod(0o700)
+    return scratch_dir, is_default
+
+
+def default_grep_roots() -> List[Path]:
+    roots = [prepare_scratch_dir()[0]]
+    home = os.environ.get("HOME")
+    if home:
+        roots.append(Path(home) / ".claude" / "projects")
+    return roots
+
+
+def configured_grep_roots() -> List[Path]:
+    configured = os.environ.get("CK_RECALL_ROOTS")
+    raw_roots: Iterable[str]
+    if configured is None:
+        raw_roots = (str(path) for path in default_grep_roots())
+    else:
+        raw_roots = configured.split(os.pathsep)
+
+    roots: List[Path] = []
+    seen = set()
+    for value in raw_roots:
+        if not value:
+            continue
+        path = expand_configured_path(value)
+        if not path.is_absolute():
+            path = Path.cwd() / path
+        path = Path(os.path.abspath(str(path)))
+        if not path.exists() or str(path) in seen:
+            continue
+        roots.append(path)
+        seen.add(str(path))
+    return roots
+
+
+def parse_env_file(path: Path) -> Dict[str, str]:
+    values: Dict[str, str] = {}
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return values
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        if stripped.startswith("export "):
+            stripped = stripped[7:].lstrip()
+        key, value = stripped.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]
+        values[key] = value
+    return values
+
+
+def resolve_sm_api_key() -> Optional[str]:
+    for key_name in ("SUPERMEMORY_API_KEY", "SUPERMEMORY_CC_API_KEY"):
+        value = os.environ.get(key_name, "").strip()
+        if value:
+            return value
+
+    env_setting = os.environ.get("CK_SM_ENV", DEFAULT_SM_ENV)
+    if not env_setting:
+        return None
+    values = parse_env_file(expand_configured_path(env_setting))
+    for key_name in ("SUPERMEMORY_API_KEY", "SUPERMEMORY_CC_API_KEY"):
+        value = values.get(key_name, "").strip()
+        if value:
+            return value
+    return None
+
+
+def pick_first(data: Any, names: Sequence[str]) -> Any:
+    if isinstance(data, dict):
+        for name in names:
+            value = data.get(name)
+            if value is not None:
+                return value
+    return None
+
+
+def first_list(data: Any) -> List[Any]:
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        for key in ("results", "hits", "items", "data", "memories", "documents"):
+            value = data.get(key)
+            if isinstance(value, list):
+                return value
+        nested = data.get("result")
+        if isinstance(nested, dict):
+            return first_list(nested)
+    return []
+
+
+def supermemory_search(
+    query: str, limit: int, sm_key: str, container: str
+) -> List[Dict[str, Any]]:
+    body = json.dumps(
+        {"q": query, "containerTag": container, "limit": limit}
+    ).encode("utf-8")
+    http_request = request.Request(
+        SM_API_URL,
+        data=body,
+        method="POST",
+        headers={
+            "Authorization": "Bearer {}".format(sm_key),
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+    )
+    try:
+        with request.urlopen(http_request, timeout=DEFAULT_TIMEOUT) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except error.HTTPError as exc:
+        raise RuntimeError("Supermemory HTTP {}".format(exc.code)) from exc
+    except error.URLError as exc:
+        detail = getattr(exc, "reason", exc)
+        raise RuntimeError("Supermemory request failed: {}".format(detail)) from exc
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("Supermemory response failed: {}".format(exc)) from exc
+
+    hits: List[Dict[str, Any]] = []
+    for item in first_list(payload):
+        if isinstance(item, dict):
+            hit = dict(item)
+            hit.setdefault("containerTag", container)
+            hits.append(hit)
+    return hits[:limit]
+
+
+def meili_search(
+    query: str, limit: int, executable: str
+) -> List[Dict[str, Any]]:
+    command = [executable, "--json", "-l", str(limit), "--", query]
+    try:
+        result = subprocess.run(
+            command,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=DEFAULT_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("mem-search timed out after {}s".format(DEFAULT_TIMEOUT)) from exc
+    except OSError as exc:
+        raise RuntimeError("could not run mem-search: {}".format(exc)) from exc
+    if result.returncode != 0:
+        raise RuntimeError("mem-search exited {}".format(result.returncode))
+    try:
+        payload = json.loads(result.stdout or "[]")
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("mem-search returned invalid JSON: {}".format(exc)) from exc
+    return [item for item in first_list(payload) if isinstance(item, dict)][:limit]
+
+
+def rg_search(
+    query: str, roots: Sequence[Path], limit: int, executable: str
+) -> List[Dict[str, Any]]:
+    command = [
+        executable,
+        "--json",
+        "-i",
+        "-m",
+        str(limit),
+        "-e",
+        query,
+        "--",
+        *[str(root) for root in roots],
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=DEFAULT_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("rg timed out after {}s".format(DEFAULT_TIMEOUT)) from exc
+    except OSError as exc:
+        raise RuntimeError("could not run rg: {}".format(exc)) from exc
+    if result.returncode not in (0, 1):
+        raise RuntimeError("rg exited {}".format(result.returncode))
+
+    hits: List[Dict[str, Any]] = []
+    for line in result.stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if event.get("type") != "match":
+            continue
+        data = event.get("data") or {}
+        path = (data.get("path") or {}).get("text")
+        line_number = data.get("line_number")
+        text = (data.get("lines") or {}).get("text", "")
+        hits.append({"path": path, "line": line_number, "text": text})
+        if len(hits) >= limit:
+            break
+    return hits
+
+
+def grep_search(
+    query: str, roots: Sequence[Path], limit: int, executable: str
+) -> List[Dict[str, Any]]:
+    command = [
+        executable,
+        "-Rni",
+        "-m",
+        str(limit),
+        "-e",
+        query,
+        "--",
+        *[str(root) for root in roots],
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=DEFAULT_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("grep timed out after {}s".format(DEFAULT_TIMEOUT)) from exc
+    except OSError as exc:
+        raise RuntimeError("could not run grep: {}".format(exc)) from exc
+    if result.returncode not in (0, 1):
+        raise RuntimeError("grep exited {}".format(result.returncode))
+
+    hits: List[Dict[str, Any]] = []
+    for line in result.stdout.splitlines():
+        candidates = []
+        for match in GREP_LINE_NUMBER_RE.finditer(line):
+            path_text = line[: match.start()]
+            try:
+                path_exists = Path(path_text).exists()
+            except OSError:
+                path_exists = False
+            if path_exists:
+                candidates.append(
+                    (
+                        path_text,
+                        int(match.group(1)),
+                        line[match.end() :],
+                    )
+                )
+        if not candidates:
+            continue
+        path_text, line_number, text = max(candidates, key=lambda item: len(item[0]))
+        hits.append({"path": path_text, "line": line_number, "text": text})
+        if len(hits) >= limit:
+            break
+    return hits
+
+
+def absolute_pointer_path(value: Any) -> Optional[str]:
+    if not value:
+        return None
+    path = expand_configured_path(str(value))
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    return os.path.abspath(str(path))
+
+
+def meili_absolute_path(
+    value: Any, roots: Optional[Sequence[Path]] = None
+) -> Optional[str]:
+    if not value:
+        return None
+    path = expand_configured_path(str(value))
+    if path.is_absolute():
+        return os.path.abspath(str(path))
+    resolved_roots = configured_grep_roots() if roots is None else roots
+    for root in resolved_roots:
+        candidate = root / path
+        if candidate.exists():
+            return os.path.abspath(str(candidate))
+    candidate = Path.cwd() / path
+    if candidate.exists():
+        return os.path.abspath(str(candidate))
+    return None
+
+
+def meili_transcript_pointer(item: Dict[str, Any]) -> Optional[str]:
+    project = pick_first(item, ("project",))
+    session_id = pick_first(item, ("session_id", "sessionId", "session"))
+    home = os.environ.get("HOME")
+    if not home or not project or not session_id:
+        return None
+    candidate = (
+        Path(home)
+        / ".claude"
+        / "projects"
+        / str(project)
+        / "{}.jsonl".format(session_id)
+    )
+    if not candidate.exists():
+        return None
+    return "{} (session_id={})".format(candidate, session_id)
+
+
+def sm_pointer(item: Dict[str, Any]) -> Optional[str]:
+    memory_id = pick_first(item, ("id", "memoryId", "memory_id", "_id"))
+    container = pick_first(item, ("containerTag", "container_tag", "container"))
+    if not memory_id or not container:
+        return None
+    return "supermemory:{} containerTag={}".format(memory_id, container)
+
+
+def file_pointer(item: Dict[str, Any]) -> Optional[str]:
+    path = pick_first(
+        item, ("path", "file", "filepath", "file_path", "source", "source_path")
+    )
+    if isinstance(path, dict):
+        path = pick_first(path, ("text", "path", "value"))
+    absolute = absolute_pointer_path(path)
+    if not absolute:
+        return None
+    line = pick_first(item, ("line", "line_number", "lineNumber", "lineno"))
+    if line:
+        return "{}:{}".format(absolute, line)
+    return absolute
+
+
+def meili_pointer(
+    item: Dict[str, Any], roots: Optional[Sequence[Path]] = None
+) -> Optional[str]:
+    path = pick_first(
+        item, ("path", "file", "filepath", "file_path", "source", "source_path")
+    )
+    if isinstance(path, dict):
+        path = pick_first(path, ("text", "path", "value"))
+    index = pick_first(item, ("_index", "index"))
+    is_transcript = (
+        index is not None and "transcript" in str(index).lower()
+    ) or (
+        path is None
+        and pick_first(item, ("session_id", "sessionId", "session")) is not None
+    )
+    if path is None and is_transcript:
+        return meili_transcript_pointer(item)
+    absolute = meili_absolute_path(path, roots)
+    if not absolute:
+        return None
+    line = pick_first(item, ("line", "line_number", "lineNumber", "lineno"))
+    if line:
+        return "{}:{}".format(absolute, line)
+    return absolute
+
+
+def hit_pointer(
+    layer: str,
+    item: Dict[str, Any],
+    meili_roots: Optional[Sequence[Path]] = None,
+) -> Optional[str]:
+    if layer == "sm":
+        return sm_pointer(item)
+    if layer == "meili":
+        return meili_pointer(item, meili_roots)
+    return file_pointer(item)
+
+
+def emit_hits(
+    layer: str, raw_hits: Sequence[Dict[str, Any]]
+) -> Tuple[List[Dict[str, Any]], int]:
+    emitted: List[Dict[str, Any]] = []
+    rejected = 0
+    meili_roots = configured_grep_roots() if layer == "meili" else None
+    for index, item in enumerate(raw_hits):
+        if not isinstance(item, dict):
+            rejected += 1
+            continue
+        pointer = hit_pointer(layer, item, meili_roots)
+        if not pointer:
+            rejected += 1
+            continue
+        title = compact_text(
+            pick_first(item, ("title", "name", "heading", "path", "file"))
+        ) or pointer
+        snippet = compact_text(
+            pick_first(
+                item,
+                ("snippet", "text", "content", "body", "summary", "description"),
+            )
+        )
+        emitted.append(
+            {
+                "layer": layer,
+                "pointer": pointer,
+                "title": title,
+                "snippet": snippet,
+                "ordinal": index,
+            }
+        )
+    return emitted, rejected
+
+
+def round_robin(
+    layer_hits: Dict[str, List[Dict[str, Any]]], layer_order: Sequence[str]
+) -> List[Dict[str, Any]]:
+    merged: List[Dict[str, Any]] = []
+    index = 0
+    while True:
+        added = False
+        for layer in layer_order:
+            hits = layer_hits.get(layer, [])
+            if index < len(hits):
+                merged.append(hits[index])
+                added = True
+        if not added:
+            return merged
+        index += 1
+
+
+def status_entry(
+    status: str, reason: str, hits: int = 0, latency_ms: int = 0
+) -> Dict[str, Any]:
+    return {
+        "status": status,
+        "reason": compact_text(reason, 160),
+        "hits": hits,
+        "latency_ms": int(latency_ms),
+    }
+
+
+def build_layer_plans(
+    selected: Sequence[str],
+) -> Tuple[Dict[str, Adapter], Dict[str, str]]:
+    adapters: Dict[str, Adapter] = {}
+    skips: Dict[str, str] = {}
+
+    if "sm" in selected:
+        container = os.environ.get("CK_SM_CONTAINER", "").strip()
+        sm_key = resolve_sm_api_key()
+        if not container and not sm_key:
+            skips["sm"] = (
+                "CK_SM_CONTAINER and SUPERMEMORY_API_KEY are not configured"
+            )
+        elif not container:
+            skips["sm"] = "CK_SM_CONTAINER is not configured"
+        elif not sm_key:
+            skips["sm"] = "SUPERMEMORY_API_KEY is not configured"
+        else:
+            adapters["sm"] = lambda query, limit: supermemory_search(
+                query, limit, sm_key, container
+            )
+
+    if "meili" in selected:
+        command_name = os.environ.get(
+            "CK_RECALL_MEILI_CMD", DEFAULT_MEILI_COMMAND
+        ).strip()
+        expanded_command = (
+            str(expand_configured_path(command_name)) if command_name else ""
+        )
+        executable = shutil.which(expanded_command) if expanded_command else None
+        if not executable:
+            skips["meili"] = "mem-search command is unavailable"
+        else:
+            adapters["meili"] = lambda query, limit: meili_search(
+                query, limit, executable
+            )
+
+    if "grep" in selected:
+        roots = configured_grep_roots()
+        if not roots:
+            skips["grep"] = "no roots"
+        else:
+            rg_executable = shutil.which("rg")
+            grep_executable = shutil.which("grep")
+            if rg_executable:
+                adapters["grep"] = lambda query, limit: rg_search(
+                    query, roots, limit, rg_executable
+                )
+            elif grep_executable:
+                adapters["grep"] = lambda query, limit: grep_search(
+                    query, roots, limit, grep_executable
+                )
+            else:
+                skips["grep"] = "neither rg nor grep is available"
+
+    return adapters, skips
+
+
+def run_layer(
+    layer: str, adapter: Adapter, query: str, limit: int
+) -> Tuple[List[Dict[str, Any]], int, int]:
+    started = time.monotonic()
+    raw_hits = adapter(query, limit)
+    latency_ms = int((time.monotonic() - started) * 1000)
+    hits, rejected = emit_hits(layer, raw_hits)
+    return hits, rejected, latency_ms
+
+
+def reserve_result_file(scratch_dir: Path, timestamp: str) -> Tuple[Path, int]:
+    base = "recall-{}".format(timestamp.replace(":", "-"))
+    for attempt in range(1024):
+        suffix = "" if attempt == 0 else "-{}-{}".format(os.getpid(), attempt)
+        path = scratch_dir / "{}{}.md".format(base, suffix)
+        try:
+            descriptor = os.open(
+                str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600
+            )
+            return path, descriptor
+        except FileExistsError:
+            continue
+    raise OSError("could not reserve a unique recall result file")
+
+
+def render_result_dump(
+    query: str,
+    timestamp: str,
+    expires_at: str,
+    selected: Sequence[str],
+    statuses: Dict[str, Dict[str, Any]],
+    hits: Sequence[Dict[str, Any]],
+) -> str:
+    lines = [
+        "---",
+        "type: scratch",
+        "mode: proactive-recall",
+        "createdAt: {}".format(timestamp),
+        "expiresAt: {}".format(expires_at),
+        "---",
+        "",
+        "# Recall {}".format(timestamp),
+        "",
+        "Query: `{}`".format(query.replace("`", "\\`")),
+        "",
+    ]
+    for layer in selected:
+        status = statuses[layer]
+        lines.append(
+            "- layer={} status={} hits={} latency_ms={} reason={}".format(
+                layer,
+                status["status"],
+                status["hits"],
+                status["latency_ms"],
+                status["reason"],
+            )
+        )
+    lines.append("")
+    for hit in hits:
+        lines.extend(
+            (
+                "## [{}] {}".format(hit["layer"], hit["title"]),
+                "pointer: {}".format(hit["pointer"]),
+                "",
+            )
+        )
+        if hit["snippet"]:
+            lines.extend((hit["snippet"], ""))
+    return "\n".join(lines)
+
+
+def write_result_dump(
+    query: str,
+    timestamp: str,
+    expires_at: str,
+    selected: Sequence[str],
+    statuses: Dict[str, Dict[str, Any]],
+    hits: Sequence[Dict[str, Any]],
+) -> str:
+    scratch_dir, _ = prepare_scratch_dir()
+    path, descriptor = reserve_result_file(scratch_dir, timestamp)
+    content = render_result_dump(
+        query, timestamp, expires_at, selected, statuses, hits
+    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(content)
+    except BaseException:
+        try:
+            path.unlink()
+        except OSError:
+            pass
+        raise
+    return str(path)
+
+
+def recall(
+    query: str,
+    selected: Sequence[str],
+    limit: int,
+    now: Optional[datetime] = None,
+    timeout: float = DEFAULT_TIMEOUT,
+) -> Dict[str, Any]:
+    adapters, skips = build_layer_plans(selected)
+    statuses = {
+        layer: status_entry("skip", skips[layer])
+        for layer in selected
+        if layer in skips
+    }
+    layer_hits: Dict[str, List[Dict[str, Any]]] = {
+        layer: [] for layer in selected
+    }
+    rejected_hits = 0
+
+    if adapters:
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=len(adapters))
+        futures = {}
+        starts = {}
+        try:
+            for layer in selected:
+                adapter = adapters.get(layer)
+                if adapter is None:
+                    continue
+                starts[layer] = time.monotonic()
+                future = executor.submit(run_layer, layer, adapter, query, limit)
+                futures[future] = layer
+            done, not_done = concurrent.futures.wait(
+                futures, timeout=timeout + OUTER_TIMEOUT_SLACK_SECONDS
+            )
+            for future in done:
+                layer = futures[future]
+                try:
+                    hits, rejected, latency_ms = future.result()
+                except Exception as exc:
+                    latency_ms = int(
+                        (time.monotonic() - starts[layer]) * 1000
+                    )
+                    statuses[layer] = status_entry(
+                        "error", str(exc) or exc.__class__.__name__, 0, latency_ms
+                    )
+                    continue
+                layer_hits[layer] = hits
+                rejected_hits += rejected
+                statuses[layer] = status_entry(
+                    "ok", "completed", len(hits), latency_ms
+                )
+            for future in not_done:
+                layer = futures[future]
+                latency_ms = int((time.monotonic() - starts[layer]) * 1000)
+                statuses[layer] = status_entry(
+                    "error",
+                    "timeout after {:g}s".format(timeout),
+                    0,
+                    latency_ms,
+                )
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
+
+    merged_hits = round_robin(layer_hits, selected)
+    moment = now or datetime.now(timezone.utc)
+    timestamp = utc_z(moment)
+    expires_at = utc_z(moment + timedelta(days=SCRATCH_TTL_DAYS))
+    scratch_path = write_result_dump(
+        query, timestamp, expires_at, selected, statuses, merged_hits
+    )
+    stats = {
+        "ts": timestamp,
+        "query_sha256": hashlib.sha256(query.encode("utf-8")).hexdigest()[:12],
+        "layers_queried": list(selected),
+        "per_layer": statuses,
+        "sm_queried": "sm" in adapters,
+        "rejected_hits": rejected_hits,
+    }
+    return {
+        "ts": timestamp,
+        "layers_queried": list(selected),
+        "per_layer": statuses,
+        "hits": merged_hits,
+        "top_hits": merged_hits[:limit],
+        "scratch_path": scratch_path,
+        "rejected_hits": rejected_hits,
+        "stats": stats,
+        "exit_code": 0
+        if any(status["status"] == "ok" for status in statuses.values())
+        else 1,
+    }
+
+
+def render_human(result: Dict[str, Any]) -> str:
+    lines = []
+    for layer in result["layers_queried"]:
+        status = result["per_layer"][layer]
+        lines.append(
+            "layer={} status={} hits={} latency_ms={} reason={}".format(
+                layer,
+                status["status"],
+                status["hits"],
+                status["latency_ms"],
+                status["reason"],
+            )
+        )
+    lines.append(
+        "stats rejected_hits={} scratch={}".format(
+            result["rejected_hits"], result["scratch_path"]
+        )
+    )
+    lines.append("")
+    for hit in result["top_hits"]:
+        snippet = " | {}".format(hit["snippet"]) if hit["snippet"] else ""
+        lines.append(
+            "- [{}] {} | {}{}".format(
+                hit["layer"], hit["pointer"], hit["title"], snippet
+            )
+        )
+    if not result["top_hits"]:
+        lines.append("- no hits")
+    lines.extend(("", "scratch: {}".format(result["scratch_path"])))
+    return "\n".join(lines)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="recall", description="Query configured memory recall layers."
+    )
+    parser.add_argument("query", help="search expression")
+    parser.add_argument(
+        "--layers",
+        default=",".join(LAYERS),
+        help="comma-separated layers: sm,meili,grep",
+    )
+    parser.add_argument(
+        "--local-only",
+        action="store_true",
+        help="filter sm out of the layers selected by --layers",
+    )
+    parser.add_argument("--limit", type=int, default=DEFAULT_LIMIT)
+    parser.add_argument("--json", action="store_true", help="emit result JSON")
+    return parser
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    try:
+        if args.limit < 1:
+            raise RecallError("--limit must be at least 1")
+        selected = parse_layers(args.layers)
+        if args.local_only:
+            selected = [layer for layer in selected if layer != "sm"]
+            if not selected:
+                raise RecallError(
+                    "--local-only removed every layer selected by --layers"
+                )
+        result = recall(args.query, selected, args.limit)
+    except RecallError as exc:
+        parser.error(str(exc))
+    except Exception as exc:
+        print(
+            "recall: unexpected failure: {}".format(str(exc) or exc.__class__.__name__),
+            file=sys.stderr,
+        )
+        return 1
+
+    if args.json:
+        printable = {key: value for key, value in result.items() if key != "exit_code"}
+        print(json.dumps(printable, indent=2, sort_keys=True, ensure_ascii=False))
+    else:
+        print(render_human(result))
+    exit_code = int(result["exit_code"])
+    if exit_code:
+        print(
+            "recall: no selected layer completed; configure an available layer "
+            "or inspect the per-layer errors",
+            file=sys.stderr,
+        )
+    return exit_code
+
+
+if __name__ == "__main__":
+    return_code = main()
+    try:
+        sys.stdout.flush()
+    except (BrokenPipeError, OSError):
+        return_code = 1
+    try:
+        sys.stderr.flush()
+    except (BrokenPipeError, OSError):
+        return_code = 1
+    os._exit(return_code)
