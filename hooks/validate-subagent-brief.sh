@@ -48,7 +48,7 @@ if [ "${STATUS}" -ne 2 ]; then
   exit 0
 fi
 
-if grep -Fq '[validate-subagent-brief] Blocked ' "${ERROR_FILE}"; then
+if grep -Fq '[validate-subagent-brief] Blocked ' "${ERROR_FILE}" 2>/dev/null; then
   cat "${ERROR_FILE}" >&2
   exit 2
 fi

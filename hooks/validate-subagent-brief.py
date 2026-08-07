@@ -83,7 +83,7 @@ def block_message(
     sections: List[str],
     skip_subagent_types: Set[str],
 ) -> str:
-    effective_skips = ", ".join(sorted(skip_subagent_types))
+    effective_skips = "effective: " + ", ".join(sorted(skip_subagent_types)) if skip_subagent_types else "none configured"
     return (
         "[validate-subagent-brief] Blocked {} delegation for subagent type '{}'.\n\n"
         "A substantial delegation prompt must include the active three-layer brief.\n"
@@ -94,7 +94,7 @@ def block_message(
         "- https://github.com/caty-ai/family-dev-handbook/blob/main/docs/07-delegation-brief.md\n"
         "- https://github.com/caty-ai/family-dev-handbook/blob/main/templates/brief-template.md\n\n"
         "For lightweight research, use a subagent type listed in "
-        "CK_BRIEF_SKIP_SUBAGENT_TYPES (effective: {}).\n"
+        "CK_BRIEF_SKIP_SUBAGENT_TYPES ({}).\n"
         "To bypass temporarily, set CK_SKIP_BRIEF_VALIDATION=1 in the environment "
         "that launches Claude Code, then restart it."
     ).format(
