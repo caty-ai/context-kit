@@ -10,6 +10,16 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'f=\"<CONTEXT_KIT_DIR>/hooks/scratch-persist.sh\"; if [ -f \"$f\" ]; then bash \"$f\"; fi'"
+          }
+        ]
+      }
     ]
   }
 }
