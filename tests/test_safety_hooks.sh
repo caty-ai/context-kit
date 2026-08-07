@@ -151,6 +151,37 @@ case_rm_pattern_families() {
   record_pass "${case_name}"
 }
 
+case_rm_first_pattern_is_independently_pinned() {
+  local case_name="rm-first-pattern-independently-blocks-exact-root"
+
+  if python3 -B - "${RM_HOOK}" <<'PY'
+import io
+import json
+import runpy
+import sys
+
+namespace = runpy.run_path(sys.argv[1], run_name="rm_enforcer_test")
+first_pattern = namespace["RISKY_PATTERNS"][0]
+namespace["find_risk"].__globals__["RISKY_PATTERNS"] = [first_pattern]
+namespace["main"].__globals__["DISABLED"] = False
+
+sys.stdin = io.StringIO(json.dumps({
+    "tool_name": "Bash",
+    "tool_input": {"command": "rm -rf /"},
+}))
+sys.stderr = io.StringIO()
+
+status = namespace["main"]()
+if status != 2 or "[rm-enforcer] Blocked a destructive command." not in sys.stderr.getvalue():
+    raise SystemExit(1)
+PY
+  then
+    record_pass "${case_name}"
+  else
+    record_fail "${case_name}" "expected pattern #1 alone to block the exact rm -rf / trigger"
+  fi
+}
+
 case_rm_allow_bypass_and_fail_open() {
   local case_name="rm-allow-bypass-and-fail-open"
 
@@ -236,6 +267,12 @@ case_private_allow_bypass_and_fail_open() {
     return
   fi
 
+  run_private 'null'
+  if [ "${RUN_STATUS}" != "0" ] || [ -s "${RUN_STDERR}" ]; then
+    record_fail "${case_name}" "expected a null JSON body to fail open silently"
+    return
+  fi
+
   run_private "$(payload_for Write 'gh repo create example --public' '/tmp/example.txt')"
   if [ "${RUN_STATUS}" = "0" ] && [ ! -s "${RUN_STDERR}" ]; then
     record_pass "${case_name}"
@@ -305,7 +342,7 @@ case_api_tool_surfaces() {
 case_api_allow_bypass_exclusion_and_fail_open() {
   local case_name="api-key-allow-bypass-exclusion-and-fail-open"
   local token="sk-$(repeat_char 40 x)"
-  local personal_env='al''pha.env'
+  local provider_env="provider.env"
 
   run_api "$(payload_for Bash 'printf safe-value')"
   if [ "${RUN_STATUS}" != "0" ] || [ -s "${RUN_STDERR}" ]; then
@@ -337,17 +374,23 @@ case_api_allow_bypass_exclusion_and_fail_open() {
     return
   fi
 
-  run_api "$(payload_for Write "${token}" "/tmp/${personal_env}")"
+  run_api "$(payload_for Write "${token}" "/tmp/${provider_env}")"
   if [ "${RUN_STATUS}" != "2" ] || ! grep -Fq '[api-key-leak-detector] Blocked a possible API-key leak.' "${RUN_STDERR}"; then
-    record_fail "${case_name}" "expected the personal env filename to be scanned and blocked"
+    record_fail "${case_name}" "expected a non-excluded env filename to be scanned and blocked"
     return
   fi
 
   run_api 'garbage'
+  if [ "${RUN_STATUS}" != "0" ] || [ -s "${RUN_STDERR}" ]; then
+    record_fail "${case_name}" "expected malformed JSON to fail open"
+    return
+  fi
+
+  run_api 'null'
   if [ "${RUN_STATUS}" = "0" ] && [ ! -s "${RUN_STDERR}" ]; then
     record_pass "${case_name}"
   else
-    record_fail "${case_name}" "expected malformed JSON to fail open"
+    record_fail "${case_name}" "expected a null JSON body to fail open silently"
   fi
 }
 
@@ -397,7 +440,36 @@ case_api_default_root_is_0700() {
   fi
 }
 
+case_api_relative_scratch_is_not_cwd_relative() {
+  local case_name="api-key-relative-scratch-is-not-cwd-relative"
+  local fake_home="${TMP_DIR}/relative-home"
+  local temp_cwd="${TMP_DIR}/relative-cwd"
+  local expected_dir="${fake_home}/.claude/scratch/test-agent/memory/relscratch"
+  local token="sk-$(repeat_char 40 x)"
+  local payload
+  local evidence_file
+
+  mkdir -p "${fake_home}" "${temp_cwd}"
+  payload=$(payload_for Bash "printf ${token}")
+  prepare_output_files
+  if (cd "${temp_cwd}" && printf '%s' "${payload}" | env -u CK_API_KEY_DETECT_DISABLED HOME="${fake_home}" CK_AGENT=test-agent CK_SCRATCH_DIR=relscratch node "${API_HOOK}" >"${RUN_STDOUT}" 2>"${RUN_STDERR}"); then
+    RUN_STATUS=0
+  else
+    RUN_STATUS=$?
+  fi
+  evidence_file=$(find "${expected_dir}" -type f -name 'api-key-leak-*.md' -print -quit 2>/dev/null || true)
+
+  if [ "${RUN_STATUS}" = "2" ] &&
+     [ -n "${evidence_file}" ] &&
+     [ -z "$(find "${temp_cwd}" -mindepth 1 -print -quit)" ]; then
+    record_pass "${case_name}"
+  else
+    record_fail "${case_name}" "expected relative evidence under the absolute default scratch root and no files in cwd"
+  fi
+}
+
 case_rm_pattern_families
+case_rm_first_pattern_is_independently_pinned
 case_rm_allow_bypass_and_fail_open
 
 if command -v node >/dev/null 2>&1; then
@@ -408,6 +480,7 @@ if command -v node >/dev/null 2>&1; then
   case_api_allow_bypass_exclusion_and_fail_open
   case_api_evidence_permissions_and_notice
   case_api_default_root_is_0700
+  case_api_relative_scratch_is_not_cwd_relative
 else
   record_skip "private-repo-enforcer-node-cases" "node is unavailable"
   record_skip "api-key-leak-detector-node-cases" "node is unavailable"

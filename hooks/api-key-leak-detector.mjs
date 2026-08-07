@@ -48,7 +48,13 @@ function readStdin(timeoutMs = 2000) {
 
 function resolveScratchDir() {
   if (process.env.CK_SCRATCH_DIR) {
-    return { scratchDir: resolve(process.env.CK_SCRATCH_DIR), isDefault: false };
+    const scratchBase = process.env.HOME
+      ? join(process.env.HOME, ".claude", "scratch", process.env.CK_AGENT || "agent", "memory")
+      : join(process.env.TMPDIR || "/tmp", "context-kit-scratch");
+    return {
+      scratchDir: resolve(scratchBase, process.env.CK_SCRATCH_DIR),
+      isDefault: false,
+    };
   }
 
   if (process.env.HOME) {
@@ -156,6 +162,11 @@ async function main() {
     try {
       data = JSON.parse(input);
     } catch {
+      clearTimeout(safetyTimeout);
+      process.exit(0);
+    }
+
+    if (data === null || typeof data !== "object" || Array.isArray(data)) {
       clearTimeout(safetyTimeout);
       process.exit(0);
     }

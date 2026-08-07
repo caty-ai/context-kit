@@ -63,6 +63,11 @@ async function main() {
       process.exit(0);
     }
 
+    if (data === null || typeof data !== "object" || Array.isArray(data)) {
+      clearTimeout(safetyTimeout);
+      process.exit(0);
+    }
+
     if (data.tool_name !== "Bash") {
       clearTimeout(safetyTimeout);
       process.exit(0);

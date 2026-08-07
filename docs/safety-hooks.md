@@ -15,6 +15,13 @@ Together they cover three common failure classes: destructive commands, accident
 - `python3 >= 3.9` is required for `rm-enforcer.py`.
 - `node >= 18` is required for the two `.mjs` hooks.
 
+If the required interpreter is missing from the `PATH` that launches Claude Code, including an nvm/fnm-managed shell, the affected hooks are silently unprotected because exit `127` is non-blocking. Check each interpreter with one line:
+
+```sh
+command -v python3 && python3 --version
+command -v node && node --version
+```
+
 The guarded wiring below checks that the hook is a readable file and that its interpreter exists, then stays quiet with exit `0` when either prerequisite is absent. A bare attempt to run `node` on a machine without Node normally exits `127`; Claude Code treats that hook failure as non-blocking, but the guard avoids the repeated stderr noise. Internal parsing, timeout, and runtime failures also fail open. Exit `2` is reserved for a genuine detection.
 
 ## Install
@@ -96,9 +103,18 @@ Write and Edit tool calls have no Bash command string. `CK_API_KEY_DETECT_DISABL
 
 On detection, the API-key hook writes a local rotation-evidence report and prints its path to stderr. The report contains the tool name, the target file path when present, provider names, and redacted matches that keep only the first eight characters. It does not store the scanned command/content or the full matched key.
 
-Evidence files are created with mode `0600`. The kit-managed default scratch root is hardened to `0700`; a user-configured `CK_SCRATCH_DIR` retains its existing directory permissions. Evidence is never written into the repository unless the operator explicitly points `CK_SCRATCH_DIR` there.
+Evidence files are created with mode `0600`. The kit-managed default scratch root is hardened to `0700`; a user-configured `CK_SCRATCH_DIR` retains its existing directory permissions. Relative `CK_SCRATCH_DIR` values resolve under the default scratch root rather than the current working directory. Evidence is never written into the repository unless the operator explicitly points `CK_SCRATCH_DIR` there.
 
-Write/Edit calls targeting these intentional credential-file forms are excluded exactly as in the source hook: `.env`, `.env.<lowercase-suffix>`, `secret.json`, and `secrets.json`. The exclusion applies only when the file path ends with one of those slash-prefixed names. Bash commands are still scanned even when they mention an env file.
+Write/Edit calls targeting these intentional credential-file forms are excluded: `.env`, `.env.<lowercase-suffix>`, `secret.json`, and `secrets.json`. Unlike the source hook, this generalized hook deliberately drops its personal env-file exclusion, so other env filenames are scanned. The exclusion applies only when the file path ends with one of those slash-prefixed names. Bash commands are still scanned even when they mention an env file.
+
+### Known gaps (inherited from the originals)
+
+- `rm -rf /*` glob form
+- `git push -f` short flag
+- `--visibility=public` equals form
+- Repository-visibility changes through `gh api`
+
+These gaps preserve source-hook parity; PRs are welcome.
 
 ## Verify
 
