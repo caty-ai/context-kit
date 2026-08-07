@@ -73,6 +73,8 @@ Required section tokens are matched as plain, case-sensitive substrings. The hoo
 
 ## Verify
 
+**Replace `<CONTEXT_KIT_DIR>` with your actual checkout path before running these snippets, or the file guard will exit `0` silently.**
+
 Run the self-check from the repository root:
 
 ```sh

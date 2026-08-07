@@ -19,6 +19,7 @@ else
   export CK_SCRATCH_DIR_IS_DEFAULT=1
 fi
 
+# This duplicated launcher pattern is intentionally copy-kept so each hook stays single-file installable.
 SCRIPT_PATH=$0
 if command -v readlink >/dev/null 2>&1; then
   LINK_COUNT=0

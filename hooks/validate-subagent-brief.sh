@@ -7,6 +7,7 @@ if [ "${CK_SKIP_BRIEF_VALIDATION:-0}" = "1" ]; then
   exit 0
 fi
 
+# This duplicated launcher pattern is intentionally copy-kept so each hook stays single-file installable.
 SCRIPT_PATH=$0
 if command -v readlink >/dev/null 2>&1; then
   LINK_COUNT=0
@@ -47,13 +48,8 @@ if [ "${STATUS}" -ne 2 ]; then
   exit 0
 fi
 
-FIRST_LINE=""
-IFS= read -r FIRST_LINE < "${ERROR_FILE}" || exit 0
-case "${FIRST_LINE}" in
-  '[validate-subagent-brief] Blocked '*)
-    if cat "${ERROR_FILE}" >&2; then
-      exit 2
-    fi
-    ;;
-esac
+if grep -Fq '[validate-subagent-brief] Blocked ' "${ERROR_FILE}"; then
+  cat "${ERROR_FILE}" >&2
+  exit 2
+fi
 exit 0

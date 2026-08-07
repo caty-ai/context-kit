@@ -37,6 +37,10 @@ long_text() {
   python3 -c 'print("x" * 600, end="")'
 }
 
+repeated_text() {
+  python3 -c 'import sys; print("x" * int(sys.argv[1]), end="")' "$1"
+}
+
 payload_for() {
   local tool_name="$1"
   local subagent_type="$2"
@@ -124,6 +128,22 @@ case_short_allowed() {
   fi
 }
 
+case_threshold_boundary() {
+  local case_name="threshold-boundary"
+  run_hook "$(payload_for Agent executor "$(repeated_text 499)")"
+  if [ "${RUN_STATUS}" != "0" ] || [ -s "${RUN_STDERR}" ]; then
+    record_fail "${case_name}" "expected a 499-character prompt to skip validation"
+    return
+  fi
+  run_hook "$(payload_for Agent executor "$(repeated_text 500)")"
+  if [ "${RUN_STATUS}" = "2" ] &&
+     grep -Fq 'Missing sections: ## 実装仕様, ## 実装チェック, ## レビュー基準' "${RUN_STDERR}"; then
+    record_pass "${case_name}"
+  else
+    record_fail "${case_name}" "expected a 500-character prompt to trigger validation"
+  fi
+}
+
 case_default_skip_allowed() {
   local case_name="default-writer-skip-allowed"
   run_hook "$(payload_for Agent writer "$(long_text)")"
@@ -131,6 +151,17 @@ case_default_skip_allowed() {
     record_pass "${case_name}"
   else
     record_fail "${case_name}" "expected the default writer type to skip validation"
+  fi
+}
+
+case_skip_matching_is_exact() {
+  local case_name="skip-matching-is-exact"
+  run_hook "$(payload_for Agent writer2 "$(long_text)")"
+  if [ "${RUN_STATUS}" = "2" ] &&
+     grep -Fq "subagent type 'writer2'" "${RUN_STDERR}"; then
+    record_pass "${case_name}"
+  else
+    record_fail "${case_name}" "expected writer2 not to inherit the default writer skip"
   fi
 }
 
@@ -146,6 +177,18 @@ case_skip_override_replaces_defaults() {
     record_pass "${case_name}"
   else
     record_fail "${case_name}" "expected an override to replace rather than extend the default skip list"
+  fi
+}
+
+case_skip_override_message_uses_effective_list() {
+  local case_name="skip-override-message-uses-effective-list"
+  run_hook "$(payload_for Agent writer "$(long_text)")" CK_BRIEF_SKIP_SUBAGENT_TYPES=research-lite
+  if [ "${RUN_STATUS}" = "2" ] &&
+     grep -Fq 'CK_BRIEF_SKIP_SUBAGENT_TYPES (effective: research-lite).' "${RUN_STDERR}" &&
+     ! grep -Fq 'Explore' "${RUN_STDERR}"; then
+    record_pass "${case_name}"
+  else
+    record_fail "${case_name}" "expected the block message to show only the effective skip list"
   fi
 }
 
@@ -165,6 +208,38 @@ case_custom_sections_enforced() {
     record_pass "${case_name}"
   else
     record_fail "${case_name}" "expected canonical tokens alone to fail under a custom required set"
+  fi
+}
+
+case_custom_sections_use_generic_skeleton_guidance() {
+  local case_name="custom-sections-use-generic-skeleton-guidance"
+  local required='## Goal|## Self-check|## Review criteria'
+  run_hook "$(payload_for Agent executor "$(long_text)")" CK_BRIEF_REQUIRED_SECTIONS="${required}"
+  if [ "${RUN_STATUS}" = "2" ] &&
+     grep -Fq '## Goal' "${RUN_STDERR}" &&
+     grep -Fq -- '- State what this section requires.' "${RUN_STDERR}" &&
+     ! grep -Fq -- '- State the deliverable, constraints, and relevant context.' "${RUN_STDERR}"; then
+    record_pass "${case_name}"
+  else
+    record_fail "${case_name}" "expected custom required sections to use generic skeleton guidance"
+  fi
+}
+
+case_reordered_canonical_sections_use_generic_skeleton_guidance() {
+  local case_name="reordered-canonical-sections-use-generic-skeleton-guidance"
+  local required='## レビュー基準|## 実装仕様|## 実装チェック'
+  run_hook "$(payload_for Agent executor "$(long_text)")" CK_BRIEF_REQUIRED_SECTIONS="${required}"
+  if [ "${RUN_STATUS}" = "2" ] &&
+     grep -Fq '## レビュー基準' "${RUN_STDERR}" &&
+     grep -Fq '## 実装仕様' "${RUN_STDERR}" &&
+     grep -Fq '## 実装チェック' "${RUN_STDERR}" &&
+     [ "$(grep -Fc -- '- State what this section requires.' "${RUN_STDERR}")" = "3" ] &&
+     ! grep -Fq -- '- State the deliverable, constraints, and relevant context.' "${RUN_STDERR}" &&
+     ! grep -Fq -- '- List concrete self-verification steps and completion checks.' "${RUN_STDERR}" &&
+     ! grep -Fq -- '- Define observable reviewer criteria and acceptance conditions.' "${RUN_STDERR}"; then
+    record_pass "${case_name}"
+  else
+    record_fail "${case_name}" "expected reordered canonical sections to use only generic skeleton guidance"
   fi
 }
 
@@ -190,6 +265,21 @@ case_matching_is_exact() {
   fi
 }
 
+case_malformed_required_sections_fall_back() {
+  local case_name="malformed-required-sections-fall-back"
+  local malformed_values=('a||b' '|')
+  local value
+  for value in "${malformed_values[@]}"; do
+    run_hook "$(payload_for Agent executor "$(long_text)")" CK_BRIEF_REQUIRED_SECTIONS="${value}"
+    if [ "${RUN_STATUS}" != "2" ] ||
+       ! grep -Fq 'Missing sections: ## 実装仕様, ## 実装チェック, ## レビュー基準' "${RUN_STDERR}"; then
+      record_fail "${case_name}" "expected malformed required sections (${value}) to fall back to canonical defaults"
+      return
+    fi
+  done
+  record_pass "${case_name}"
+}
+
 case_threshold_override_and_fallback() {
   local case_name="threshold-override-and-fallback"
   local prompt
@@ -204,6 +294,37 @@ case_threshold_override_and_fallback() {
     record_pass "${case_name}"
   else
     record_fail "${case_name}" "expected a non-numeric threshold to fall back to 500"
+  fi
+}
+
+case_subagent_type_is_sanitized() {
+  local case_name="subagent-type-is-sanitized"
+  local weird_type=$'writer\r\nwith-break'
+  local first_line
+  run_hook "$(payload_for Agent "${weird_type}" "$(long_text)")"
+  first_line=$(head -n 1 "${RUN_STDERR}" || true)
+  if [ "${RUN_STATUS}" = "2" ] &&
+     [ "${first_line}" = "[validate-subagent-brief] Blocked Agent delegation for subagent type 'writer  with-break'." ] &&
+     ! grep -q $'\r' "${RUN_STDERR}"; then
+    record_pass "${case_name}"
+  else
+    record_fail "${case_name}" "expected CR/LF in the echoed subagent type to be flattened"
+  fi
+}
+
+case_subagent_type_is_truncated() {
+  local case_name="subagent-type-is-truncated"
+  local long_type
+  local first_line
+  long_type=$(python3 -c 'print("t" * 120, end="")')
+  run_hook "$(payload_for Agent "${long_type}" "$(long_text)")"
+  first_line=$(head -n 1 "${RUN_STDERR}" || true)
+  if [ "${RUN_STATUS}" = "2" ] &&
+     [ "${#first_line}" = "172" ] &&
+     printf '%s\n' "${first_line}" | grep -Eq "^\\[validate-subagent-brief\\] Blocked Agent delegation for subagent type 't{100}'\\.$"; then
+    record_pass "${case_name}"
+  else
+    record_fail "${case_name}" "expected the echoed subagent type to be truncated to 100 characters"
   fi
 }
 
@@ -293,18 +414,50 @@ case_interpreter_status_two_fail_open() {
   fi
 }
 
+case_interpreter_noise_before_blocked_sentinel() {
+  local case_name="interpreter-noise-before-blocked-sentinel"
+  local fake_bin="${TMP_DIR}/shim-bin"
+  local fake_python="${fake_bin}/python3"
+  local payload
+  mkdir -p "${fake_bin}"
+  cat > "${fake_python}" <<EOF
+#!/bin/sh
+printf 'python shim noise\n' >&2
+exec "$(command -v python3)" "\$@"
+EOF
+  chmod 755 "${fake_python}"
+  payload=$(payload_for Agent executor "$(long_text)")
+  run_hook "${payload}" PATH="${fake_bin}:${PATH}"
+  if [ "${RUN_STATUS}" = "2" ] &&
+     grep -Fq 'python shim noise' "${RUN_STDERR}" &&
+     grep -Fq '[validate-subagent-brief] Blocked Agent delegation' "${RUN_STDERR}"; then
+    record_pass "${case_name}"
+  else
+    record_fail "${case_name}" "expected shim noise before the sentinel to preserve blocking behavior"
+  fi
+}
+
 case_missing_all_blocks
 case_compliant_allowed
 case_one_missing_blocks_exactly
 case_short_allowed
+case_threshold_boundary
 case_default_skip_allowed
+case_skip_matching_is_exact
 case_skip_override_replaces_defaults
+case_skip_override_message_uses_effective_list
 case_custom_sections_enforced
+case_custom_sections_use_generic_skeleton_guidance
+case_reordered_canonical_sections_use_generic_skeleton_guidance
 case_matching_is_exact
+case_malformed_required_sections_fall_back
 case_threshold_override_and_fallback
+case_subagent_type_is_sanitized
+case_subagent_type_is_truncated
 case_task_and_other_tools
 case_malformed_inputs_fail_open
 case_launcher_bypass
 case_missing_body_fail_open
 case_interpreter_status_two_fail_open
+case_interpreter_noise_before_blocked_sentinel
 finish
