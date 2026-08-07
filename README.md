@@ -60,7 +60,8 @@ flowchart LR
     B -->|dangerous delete / key leak / thin delegation| X[Blocked, with a corrective message]
     B -->|safe| C[Tool runs]
     C --> D{Output too large?}
-    D -->|yes| E[Full text saved to a scratch note<br>bounded preview goes to the chat]
+    D -->|yes, wrapped with lg| E[Only head+tail reaches the chat<br>full text saved to a scratch note]
+    D -->|yes, not wrapped| G[Output reaches the chat<br>but the full text is saved for re-reading]
     D -->|no| F[Goes to the chat as is]
 ```
 
@@ -74,7 +75,7 @@ flowchart LR
 
 - 📋 **brief-validator**
 
-  Blocks a long delegation to a subagent unless it carries a three-part brief: what to build, how the worker self-checks, and how a reviewer judges it.
+  Blocks a long delegation to a subagent unless it carries a three-part brief: what to build, how the worker self-checks, and how a reviewer judges it. The default section headings are the Japanese ones from the public handbook this contract comes from — swappable with one environment variable.
 
 - 🛡️ **safety-hooks**
 
@@ -177,7 +178,7 @@ Hesitant to let anything hook into your agent? The next section is the answer.
 The kit is built on the assumption that it will sometimes break — and that breaking must never take your agent down.
 
 - **Fail-open by design** — a missing file, a missing interpreter, or an internal error makes a hook stay silent and let the tool call through. A blocking exit is reserved for a genuine detection.
-- **Local by default** — no network calls, except the one opt-in memory layer of `recall` that only activates when you configure its API key. Scratch notes live in a directory created with owner-only permissions.
+- **Local by default** — no network calls, except the one opt-in memory layer of `recall` that only activates when you configure its API key. Scratch notes live in a directory created with owner-only permissions — but they hold whatever the tool printed, secrets included, and a directory you point elsewhere yourself keeps its own permissions. Treat them accordingly.
 - **Independent pieces** — each piece is its own settings block and its own file. There is no shared daemon and no shared state between them.
 - **One edit to remove** — delete the kit's blocks from `settings.json` and restart. Scratch notes are plain files with a documented one-line cleanup command.
 
@@ -193,8 +194,8 @@ The details live in reader-specific docs, one level deeper.
 
 | If you want | Read |
 | --- | --- |
-| The architecture, design principles, and an engineer's quick start | [Engineering guide](docs/engineering.md)（[日本語](docs/engineering.ja.md)） |
-| Every environment variable, file contract, and exit-code rule | [Reference](docs/reference.md)（[日本語](docs/reference.ja.md)） |
+| The architecture, design principles, and an engineer's quick start | [Engineering guide](docs/engineering.md)（[🇯🇵 日本語](docs/engineering.ja.md)） |
+| Every environment variable, file contract, and exit-code rule | [Reference](docs/reference.md)（[🇯🇵 日本語](docs/reference.ja.md)） |
 | One piece at a time, with install and verify steps | [lg](docs/lg.md) ・ [scratch-persist](docs/scratch-persist.md) ・ [brief-validator](docs/brief-validator.md) ・ [safety-hooks](docs/safety-hooks.md) ・ [recall](docs/recall.md) |
 
 ---
