@@ -11,6 +11,33 @@
         ]
       },
       {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'f=\"<CONTEXT_KIT_DIR>/hooks/rm-enforcer.py\"; if [ -f \"$f\" ] && [ -r \"$f\" ] && command -v python3 >/dev/null 2>&1; then python3 -B \"$f\"; fi'"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'f=\"<CONTEXT_KIT_DIR>/hooks/private-repo-enforcer.mjs\"; if [ -f \"$f\" ] && [ -r \"$f\" ] && command -v node >/dev/null 2>&1; then node \"$f\"; fi'"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'f=\"<CONTEXT_KIT_DIR>/hooks/api-key-leak-detector.mjs\"; if [ -f \"$f\" ] && [ -r \"$f\" ] && command -v node >/dev/null 2>&1; then node \"$f\"; fi'"
+          }
+        ]
+      },
+      {
         "matcher": "Agent|Task",
         "hooks": [
           {
