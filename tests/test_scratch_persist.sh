@@ -318,8 +318,8 @@ case_invalid_threshold_defaults() {
   record_pass "${case_name}"
 }
 
-case_write_failure_no_notice() {
-  local case_name="write-failure-no-notice"
+case_invalid_scratch_target_silent() {
+  local case_name="invalid-scratch-target-silent"
   local scratch_dir="${TMP_DIR}/write-blocked"
   local payload
   printf 'not-a-directory' > "${scratch_dir}"
@@ -330,6 +330,66 @@ case_write_failure_no_notice() {
     record_pass "${case_name}"
   else
     record_fail "${case_name}" "expected a non-directory scratch target to emit no notice or final file"
+  fi
+}
+
+case_write_failure_no_notice() {
+  local case_name="write-failure-no-notice"
+  local scratch_dir="${TMP_DIR}/replace-failure"
+  if env PYTHONDONTWRITEBYTECODE=1 CK_SCRATCH_DIR="${scratch_dir}" CK_SCRATCH_THRESHOLD=5000 HOOK_PATH="${ROOT}/hooks/scratch-persist.py" \
+    python3 - <<'PY'
+import contextlib
+import importlib.util
+import io
+import json
+import os
+import sys
+
+hook_path = os.environ["HOOK_PATH"]
+spec = importlib.util.spec_from_file_location("scratch_persist_hook", hook_path)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+payload = {
+    "tool_name": "Bash",
+    "tool_input": {"command": "printf write-failure"},
+    "tool_response": {"stdout": "WRITE-FAILURE-CONTENT" + ("x" * 6000)},
+}
+stdout = io.StringIO()
+stderr = io.StringIO()
+original_stdin = sys.stdin
+original_replace = module.os.replace
+replace_calls = []
+
+def fail_replace(source, destination):
+    replace_calls.append((source, destination))
+    raise OSError("simulated os.replace failure")
+
+module.os.replace = fail_replace
+sys.stdin = io.StringIO(json.dumps(payload))
+try:
+    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        rc = module.run()
+finally:
+    sys.stdin = original_stdin
+    module.os.replace = original_replace
+
+scratch_dir = os.environ["CK_SCRATCH_DIR"]
+names = os.listdir(scratch_dir)
+scratch_files = [name for name in names if name.startswith("scratch-") and name.endswith(".md")]
+temp_files = [name for name in names if name.startswith(".scratch-persist-")]
+
+assert rc == 0
+assert replace_calls
+assert stdout.getvalue() == ""
+assert stderr.getvalue() == ""
+assert scratch_files == []
+assert temp_files == []
+PY
+  then
+    record_pass "${case_name}"
+  else
+    record_fail "${case_name}" "expected os.replace failure to clean reserved and temporary files without output"
   fi
 }
 
@@ -577,6 +637,7 @@ case_missing_tool_input_persists
 case_extraction_shapes
 case_threshold_override
 case_invalid_threshold_defaults
+case_invalid_scratch_target_silent
 case_write_failure_no_notice
 case_unwritable_dir_root_skip
 case_user_scratch_keeps_mode
