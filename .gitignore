@@ -3,3 +3,4 @@ __pycache__/
 *.pyc
 .omc/
 .omx/
+.readme-work/
