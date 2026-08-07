@@ -80,7 +80,7 @@ PY
 }
 
 first_scratch_file() {
-  find "$1" -type f -name 'scratch-*.md' -print 2>/dev/null | head -n 1
+  find "$1" -type f -name 'scratch-*.md' -print 2>/dev/null | head -n 1 || true
 }
 
 dir_mode() {
@@ -176,16 +176,46 @@ case_invalid_inputs() {
     ''
     'garbage'
     '[]'
-    '{"tool_name":"Bash"}'
+    '{"tool_name":"Bash","tool_input":{"command":"demo"}}'
   )
   for payload in "${payloads[@]}"; do
     run_hook "${payload}" CK_SCRATCH_DIR="${scratch_dir}" CK_SCRATCH_THRESHOLD=1
     if [ "${RUN_STATUS}" != "0" ] || [ -s "${RUN_STDOUT}" ] || [ -s "${RUN_STDERR}" ]; then
-      record_fail "${case_name}" "expected empty, garbage, non-dict, and missing-field input to fail silently"
+      record_fail "${case_name}" "expected empty, garbage, non-dict, and missing-tool_response input to fail silently"
       return
     fi
   done
   record_pass "${case_name}"
+}
+
+case_missing_tool_input_persists() {
+  local case_name="missing-tool-input-persists"
+  local scratch_dir="${TMP_DIR}/missing-tool-input"
+  local payload
+  local scratch_file
+  payload=$(python3 - <<'PY'
+import json
+
+print(json.dumps({
+    "tool_name": "Bash",
+    "tool_response": {"stdout": "Y" * 6000},
+}))
+PY
+)
+  run_hook "${payload}" CK_SCRATCH_DIR="${scratch_dir}" CK_SCRATCH_THRESHOLD=5000
+  scratch_file=$(first_scratch_file "${scratch_dir}")
+  if [ "${RUN_STATUS}" = "0" ] &&
+     [ ! -s "${RUN_STDERR}" ] &&
+     [ -n "${scratch_file}" ] &&
+     [ -f "${scratch_file}" ] &&
+     notice_is_valid_for_path "${RUN_STDOUT}" "${scratch_file}" &&
+     grep -Fq '## Tool Input' "${scratch_file}" &&
+     grep -Fq '{}' "${scratch_file}" &&
+     grep -Fq 'YYYY' "${scratch_file}"; then
+    record_pass "${case_name}"
+  else
+    record_fail "${case_name}" "expected missing tool_input to default to {} and still persist"
+  fi
 }
 
 case_extraction_shapes() {
@@ -290,27 +320,16 @@ case_invalid_threshold_defaults() {
 
 case_write_failure_no_notice() {
   local case_name="write-failure-no-notice"
-  local scratch_dir="${TMP_DIR}/replace-blocked"
+  local scratch_dir="${TMP_DIR}/write-blocked"
   local payload
-  mkdir -p "${scratch_dir}"
-  python3 - "${scratch_dir}" <<'PY'
-import datetime
-import pathlib
-import sys
-
-root = pathlib.Path(sys.argv[1])
-now = datetime.datetime.now()
-for offset in range(-2, 4):
-    ts = (now + datetime.timedelta(seconds=offset)).strftime("%Y-%m-%dT%H-%M-%S")
-    (root / "scratch-{}-bash.md".format(ts)).mkdir()
-PY
+  printf 'not-a-directory' > "${scratch_dir}"
   payload=$(payload_for plain 100)
   run_hook "${payload}" CK_SCRATCH_DIR="${scratch_dir}" CK_SCRATCH_THRESHOLD=1
   if [ "${RUN_STATUS}" = "0" ] && [ ! -s "${RUN_STDOUT}" ] && [ ! -s "${RUN_STDERR}" ] &&
      [ -z "$(first_scratch_file "${scratch_dir}")" ]; then
     record_pass "${case_name}"
   else
-    record_fail "${case_name}" "expected failed atomic replacement to emit no notice or final file"
+    record_fail "${case_name}" "expected a non-directory scratch target to emit no notice or final file"
   fi
 }
 
@@ -398,10 +417,163 @@ case_home_unset_fallback() {
   fi
 }
 
+case_collision_gets_unique_files() {
+  local case_name="collision-gets-unique-files"
+  local scratch_dir="${TMP_DIR}/collision"
+  local result_file="${TMP_DIR}/collision-result.json"
+  if env PYTHONDONTWRITEBYTECODE=1 CK_SCRATCH_DIR="${scratch_dir}" CK_SCRATCH_THRESHOLD=1 HOOK_PATH="${ROOT}/hooks/scratch-persist.py" RESULT_PATH="${result_file}" \
+    python3 - <<'PY'
+import contextlib
+import datetime
+import importlib.util
+import io
+import json
+import os
+import sys
+
+hook_path = os.environ["HOOK_PATH"]
+result_path = os.environ["RESULT_PATH"]
+spec = importlib.util.spec_from_file_location("scratch_persist_hook", hook_path)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+class FrozenDatetime(datetime.datetime):
+    @classmethod
+    def now(cls, tz=None):
+        value = cls(2026, 8, 7, 12, 34, 56)
+        if tz is not None:
+            return tz.fromutc(value.replace(tzinfo=tz))
+        return value
+
+module.datetime.datetime = FrozenDatetime
+
+payloads = (
+    {
+        "tool_name": "Bash",
+        "tool_input": {"command": "first"},
+        "tool_response": {"stdout": "FIRST-CONTENT"},
+    },
+    {
+        "tool_name": "Bash",
+        "tool_input": {"command": "second"},
+        "tool_response": {"stdout": "SECOND-CONTENT"},
+    },
+)
+
+notices = []
+for payload in payloads:
+    stdout = io.StringIO()
+    stdin = io.StringIO(json.dumps(payload))
+    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(io.StringIO()):
+        original_stdin = sys.stdin
+        sys.stdin = stdin
+        try:
+            rc = module.run()
+        finally:
+            sys.stdin = original_stdin
+    notices.append({"rc": rc, "stdout": stdout.getvalue().strip()})
+
+files = sorted(
+    os.path.join(os.environ["CK_SCRATCH_DIR"], name)
+    for name in os.listdir(os.environ["CK_SCRATCH_DIR"])
+    if name.startswith("scratch-") and name.endswith(".md")
+)
+
+with open(result_path, "w", encoding="utf-8") as handle:
+    json.dump({"files": files, "notices": notices}, handle)
+PY
+  then
+    :
+  else
+    record_fail "${case_name}" "expected deterministic same-second runs to complete"
+    return
+  fi
+
+  if python3 - "${result_file}" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    data = json.load(handle)
+
+assert len(data["files"]) == 2
+assert len(set(data["files"])) == 2
+
+expected_markers = ("FIRST-CONTENT", "SECOND-CONTENT")
+seen_paths = set()
+for item, marker in zip(data["notices"], expected_markers):
+    assert item["rc"] == 0
+    payload = json.loads(item["stdout"])
+    notice = payload["hookSpecificOutput"]["additionalContext"]
+    matching_paths = [path for path in data["files"] if path in notice]
+    assert len(matching_paths) == 1
+    path = matching_paths[0]
+    assert path not in seen_paths
+    seen_paths.add(path)
+    with open(path, encoding="utf-8") as handle:
+        content = handle.read()
+    assert marker in content
+
+assert seen_paths == set(data["files"])
+PY
+  then
+    record_pass "${case_name}"
+  else
+    record_fail "${case_name}" "expected same-second same-tool runs to produce two distinct files and notices"
+  fi
+}
+
+case_tool_slug_capped() {
+  local case_name="tool-slug-capped"
+  local scratch_dir="${TMP_DIR}/slug-cap"
+  local long_name
+  local payload
+  local scratch_file
+  long_name=$(python3 - <<'PY'
+print("A" * 300)
+PY
+)
+  payload=$(python3 - "${long_name}" <<'PY'
+import json
+import sys
+
+print(json.dumps({
+    "tool_name": sys.argv[1],
+    "tool_input": {"command": "slug-check"},
+    "tool_response": {"stdout": "Z" * 6000},
+}))
+PY
+)
+  run_hook "${payload}" CK_SCRATCH_DIR="${scratch_dir}" CK_SCRATCH_THRESHOLD=5000
+  scratch_file=$(first_scratch_file "${scratch_dir}")
+  if [ "${RUN_STATUS}" = "0" ] &&
+     [ ! -s "${RUN_STDERR}" ] &&
+     [ -n "${scratch_file}" ] &&
+     [ -f "${scratch_file}" ] &&
+     notice_is_valid_for_path "${RUN_STDOUT}" "${scratch_file}" &&
+     python3 - "${scratch_file}" <<'PY'
+import os
+import re
+import sys
+
+name = os.path.basename(sys.argv[1])
+match = re.fullmatch(r"scratch-[0-9T-]+-([a-z0-9-]+)\.md", name)
+assert match is not None
+assert len(match.group(1)) <= 32
+assert match.group(1) == "a" * 32
+PY
+  then
+    record_pass "${case_name}"
+  else
+    record_fail "${case_name}" "expected long tool names to persist with a 32-character slug"
+  fi
+}
+
 case_above_threshold
 case_below_threshold
 case_disabled
 case_invalid_inputs
+case_missing_tool_input_persists
 case_extraction_shapes
 case_threshold_override
 case_invalid_threshold_defaults
@@ -410,4 +582,6 @@ case_unwritable_dir_root_skip
 case_user_scratch_keeps_mode
 case_default_scratch_created_700
 case_home_unset_fallback
+case_collision_gets_unique_files
+case_tool_slug_capped
 finish

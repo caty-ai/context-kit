@@ -45,11 +45,13 @@ Update either `~/.claude/settings.json` or `<project>/.claude/settings.json`. Me
 
 Restart Claude Code or run `/hooks` so the new wiring is picked up.
 
+The example intentionally omits `matcher`, so the hook fires after every tool call. If you want to scope it, add a matcher such as `"matcher": "Bash|Read|Grep|WebFetch"` on the `PostToolUse` entry.
+
 ## Wiring Notes
 
 The guarded command stays silent when `<CONTEXT_KIT_DIR>` has not been replaced or the checkout moves. `PostToolUse` exit codes do not block a completed tool call, but a bare broken path would print an error after every tool call. The file guard avoids that repeated noise.
 
-The launcher resolves `scratch-persist.py` relative to its own location and fails open if the body or `python3` is unavailable. All controlled error paths exit `0` without stderr or malformed stdout. On success, stdout contains exactly one JSON object with `hookSpecificOutput.additionalContext`.
+The launcher resolves `scratch-persist.py` relative to its own location, follows symlinks when `readlink` is available, and fails open if the body or `python3` is unavailable. All controlled error paths exit `0` without stderr or malformed stdout. On success, stdout contains exactly one JSON object with `hookSpecificOutput.additionalContext`.
 
 Export hook environment variables from the shell, launcher, or app wrapper that starts Claude Code. Variables set only in a later interactive shell may not be visible to hooks.
 
@@ -62,11 +64,13 @@ Export hook environment variables from the shell, launcher, or app wrapper that 
 | `CK_SCRATCH_DIR` | Target directory for scratch files. Files are written directly into this directory. | `${HOME}/.claude/scratch/${CK_AGENT:-agent}/memory` when `HOME` is set; otherwise `${TMPDIR:-/tmp}/context-kit-scratch` |
 | `CK_AGENT` | Scratch subdirectory name when `CK_SCRATCH_DIR` is unset and `HOME` is available. | `agent` |
 
+`CK_SCRATCH_DIR_IS_DEFAULT` is launcher-internal state used to decide whether the hook should harden directory permissions. Do not set it manually.
+
 ## Scratch Behavior and Lifecycle
 
 The hook preserves the original response extraction surface: plain strings; `stdout`, `stderr`, `output`, `content`, and `result` dictionary fields; string list items; and list dictionaries containing `text` or `content` strings. Extracted parts retain that key order and are joined with newlines.
 
-Files use the `scratch-<timestamp>-<tool>.md` convention in the same directory as [`lg`](lg.md), with `mode: reactive-persist`, creation and expiration timestamps, and a 7-day TTL. A write is completed through an atomic same-directory replacement before the hook emits its notice. If directory creation, permission hardening, writing, syncing, or replacement fails, the hook emits no notice.
+Files use the `scratch-<timestamp>-<tool>.md` convention in the same directory as [`lg`](lg.md), with a capped tool slug, same-second collision avoidance that keeps files flat under the scratch directory, `mode: reactive-persist`, creation and expiration timestamps, and a 7-day TTL. A write is completed through an atomic same-directory replacement before the hook emits its notice. If directory creation, permission hardening, writing, syncing, or replacement fails, the hook emits no notice.
 
 Scratch files may contain secrets, tokens, stack traces, or raw customer data. The default scratch directory is created with mode `0700`. A user-supplied `CK_SCRATCH_DIR` keeps its existing permissions; protecting it is your responsibility.
 
@@ -80,7 +84,7 @@ elif [ -n "${HOME:-}" ]; then
 else
   scratch_dir="${TMPDIR:-/tmp}/context-kit-scratch"
 fi
-find "${scratch_dir}" -type f -name 'scratch-*.md' -mtime +7 -delete
+find "${scratch_dir}" \( -type f -name 'scratch-*.md' -o -type f -name '.scratch-persist-*' \) -mtime +7 -delete
 ```
 
 ## Verify

@@ -9,11 +9,13 @@ import os
 import re
 import sys
 import tempfile
-from typing import Any, List, Tuple
+from typing import Any, List, Optional, Tuple
 
 
 DEFAULT_THRESHOLD = 5000
 TTL_DAYS = 7
+MAX_TOOL_SLUG_LEN = 32
+MAX_UNIQUE_PROBES = 1024
 
 
 def extract_output(resp: Any) -> str:
@@ -59,8 +61,31 @@ def resolve_scratch_dir() -> Tuple[str, bool]:
     configured = os.environ.get("CK_SCRATCH_DIR")
     if configured:
         launched_as_default = os.environ.get("CK_SCRATCH_DIR_IS_DEFAULT") == "1"
-        return configured, launched_as_default
-    return default_scratch_dir(), True
+        return os.path.abspath(configured), launched_as_default
+    return os.path.abspath(default_scratch_dir()), True
+
+
+def slugify_tool(tool: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", tool.lower()).strip("-")
+    return (slug[:MAX_TOOL_SLUG_LEN] or "tool").rstrip("-") or "tool"
+
+
+def reserve_scratch_file(
+    scratch_dir: str, ts: str, safe_tool: str
+) -> Tuple[Optional[str], Optional[int]]:
+    pid = os.getpid()
+    base = "scratch-{}-{}".format(ts, safe_tool)
+    for attempt in range(MAX_UNIQUE_PROBES):
+        suffix = "" if attempt == 0 else "-{}-{}".format(pid, attempt)
+        scratch_file = os.path.join(scratch_dir, "{}{}.md".format(base, suffix))
+        try:
+            fd = os.open(scratch_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            return scratch_file, fd
+        except FileExistsError:
+            continue
+        except OSError:
+            return None, None
+    return None, None
 
 
 def render_scratch(
@@ -95,10 +120,11 @@ def render_scratch(
     )
 
 
-def write_atomically(scratch_file: str, content: str) -> bool:
+def write_atomically(scratch_file: str, reserved_fd: int, content: str) -> bool:
     scratch_dir = os.path.dirname(scratch_file)
     temp_path = ""
     try:
+        os.close(reserved_fd)
         with tempfile.NamedTemporaryFile(
             mode="w",
             encoding="utf-8",
@@ -112,11 +138,19 @@ def write_atomically(scratch_file: str, content: str) -> bool:
             os.fsync(handle.fileno())
         os.replace(temp_path, scratch_file)
     except Exception:
+        try:
+            os.close(reserved_fd)
+        except OSError:
+            pass
         if temp_path:
             try:
                 os.unlink(temp_path)
             except OSError:
                 pass
+        try:
+            os.unlink(scratch_file)
+        except OSError:
+            pass
         return False
     return True
 
@@ -132,7 +166,7 @@ def run() -> int:
     data = json.loads(raw)
     if not isinstance(data, dict):
         return 0
-    if "tool_name" not in data or "tool_input" not in data or "tool_response" not in data:
+    if "tool_name" not in data or "tool_response" not in data:
         return 0
 
     tool = data.get("tool_name")
@@ -154,15 +188,17 @@ def run() -> int:
     expires = (now + datetime.timedelta(days=TTL_DAYS)).replace(
         microsecond=0
     ).isoformat()
-    safe_tool = re.sub(r"[^a-z0-9]+", "-", tool.lower()).strip("-") or "tool"
-    scratch_file = os.path.join(scratch_dir, "scratch-{}-{}.md".format(ts, safe_tool))
+    safe_tool = slugify_tool(tool)
+    scratch_file, reserved_fd = reserve_scratch_file(scratch_dir, ts, safe_tool)
+    if not scratch_file or reserved_fd is None:
+        return 0
 
     content = render_scratch(tool, tool_input, output, created, expires)
-    if not write_atomically(scratch_file, content):
+    if not write_atomically(scratch_file, reserved_fd, content):
         return 0
 
     notice = (
-        "[scratch-persist] Saved {} characters of {} output to scratch: {} — "
+        "[scratch-persist] Saved {} characters of {} output to scratch: {} -- "
         "use Read/Grep on this file instead of re-running the tool when the same "
         "information is needed (TTL 7 days)."
     ).format(len(output), tool, scratch_file)
@@ -174,7 +210,7 @@ def run() -> int:
                     "additionalContext": notice,
                 }
             },
-            ensure_ascii=False,
+            ensure_ascii=True,
         )
     )
     return 0

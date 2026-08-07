@@ -19,7 +19,29 @@ else
   export CK_SCRATCH_DIR_IS_DEFAULT=1
 fi
 
-BODY_DIR=$(dirname "$0" 2>/dev/null) || exit 0
+SCRIPT_PATH=$0
+if command -v readlink >/dev/null 2>&1; then
+  LINK_COUNT=0
+  MAX_LINKS=40
+  while [ -L "${SCRIPT_PATH}" ]; do
+    if [ "${LINK_COUNT}" -ge "${MAX_LINKS}" ]; then
+      exit 0
+    fi
+    LINK_COUNT=$((LINK_COUNT + 1))
+    LINK_TARGET=$(readlink "${SCRIPT_PATH}" 2>/dev/null) || break
+    case "${LINK_TARGET}" in
+      /*)
+        SCRIPT_PATH="${LINK_TARGET}"
+        ;;
+      *)
+        SCRIPT_DIR=$(dirname "${SCRIPT_PATH}" 2>/dev/null) || break
+        SCRIPT_PATH="${SCRIPT_DIR}/${LINK_TARGET}"
+        ;;
+    esac
+  done
+fi
+
+BODY_DIR=$(cd "$(dirname "${SCRIPT_PATH}")" 2>/dev/null && pwd -P) || exit 0
 BODY="${BODY_DIR}/scratch-persist.py"
 if [ ! -f "${BODY}" ] || ! command -v python3 >/dev/null 2>&1; then
   exit 0
