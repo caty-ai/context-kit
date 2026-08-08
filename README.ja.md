@@ -198,20 +198,6 @@ for t in tests/*.sh; do bash "$t"; done
 | 全環境変数・ファイル契約・終了コードの規則 | [詳細仕様](docs/reference.ja.md)（[🇺🇸 English](docs/reference.md)） |
 | 装備を1つずつ、導入と検証の手順つきで | [lg](docs/lg.md) ・ [scratch-persist](docs/scratch-persist.md) ・ [brief-validator](docs/brief-validator.md) ・ [safety-hooks](docs/safety-hooks.md) ・ [recall](docs/recall.md) |
 
----
-
-<a id="license"></a>
-
-## ライセンス
-
-[MIT](LICENSE) です。このキットは「気に入った装備を自分の環境に自由に写して使ってほしい」ために存在します。ゆるい許諾は脚注ではなく目的そのものです。
-
-<div align="center">
-
-**素の hooks + 小さな CLI** ｜ **fail-open 設計** ｜ **MIT**
-
-</div>
-
 <!-- family:generated:family-footer:start -->
 
 ---
@@ -232,3 +218,18 @@ for t in tests/*.sh; do bash "$t"; done
 | 横軸 | [Sitter](https://github.com/caty-ai/sitter) | 委譲したエージェント実行の見張り番 — 監視・証拠の記録・再起動 | 公開・MIT |
 
 <!-- family:generated:family-footer:end -->
+
+---
+
+<a id="license"></a>
+
+## ライセンス
+
+[MIT](LICENSE) です。このキットは「気に入った装備を自分の環境に自由に写して使ってほしい」ために存在します。ゆるい許諾は脚注ではなく目的そのものです。
+
+<div align="center">
+
+**素の hooks + 小さな CLI** ｜ **fail-open 設計** ｜ **MIT**
+
+</div>
+

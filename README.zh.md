@@ -198,20 +198,6 @@ for t in tests/*.sh; do bash "$t"; done
 | 每个环境变量、文件约定、退出码规则 | [参考文档](docs/reference.md)（[🇯🇵 日本語](docs/reference.ja.md)） |
 | 逐件了解每个装备，含安装和验证步骤 | [lg](docs/lg.md) ・ [scratch-persist](docs/scratch-persist.md) ・ [brief-validator](docs/brief-validator.md) ・ [safety-hooks](docs/safety-hooks.md) ・ [recall](docs/recall.md) |
 
----
-
-<a id="license"></a>
-
-## 许可协议
-
-[MIT](LICENSE)。这套装备存在的意义，就是让你可以自由地把其中任何一件复制进自己的环境——宽松的许可协议是它的目的，不是附带的一句话。
-
-<div align="center">
-
-**朴素的 hooks + 小巧的 CLI** ｜ **默认 fail-open** ｜ **MIT**
-
-</div>
-
 <!-- family:generated:family-footer:start -->
 
 ---
@@ -232,3 +218,18 @@ for t in tests/*.sh; do bash "$t"; done
 | 横轴 | [Sitter](https://github.com/caty-ai/sitter) | 替你盯着委派出去的智能体 — 监视、留证、重启 | 已公开・MIT |
 
 <!-- family:generated:family-footer:end -->
+
+---
+
+<a id="license"></a>
+
+## 许可协议
+
+[MIT](LICENSE)。这套装备存在的意义，就是让你可以自由地把其中任何一件复制进自己的环境——宽松的许可协议是它的目的，不是附带的一句话。
+
+<div align="center">
+
+**朴素的 hooks + 小巧的 CLI** ｜ **默认 fail-open** ｜ **MIT**
+
+</div>
+
