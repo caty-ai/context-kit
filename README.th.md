@@ -198,20 +198,6 @@ for t in tests/*.sh; do bash "$t"; done
 | ตัวแปรสภาพแวดล้อมทุกตัว ข้อตกลงไฟล์ และกฎ exit code ทั้งหมด | [เอกสารอ้างอิง](docs/reference.md)（[🇯🇵 日本語](docs/reference.ja.md)） |
 | ทีละชิ้น พร้อมขั้นตอนติดตั้งและตรวจสอบ | [lg](docs/lg.md) ・ [scratch-persist](docs/scratch-persist.md) ・ [brief-validator](docs/brief-validator.md) ・ [safety-hooks](docs/safety-hooks.md) ・ [recall](docs/recall.md) |
 
----
-
-<a id="license"></a>
-
-## สัญญาอนุญาต
-
-[MIT](LICENSE) คิทนี้มีอยู่เพื่อให้คุณคัดลอกอุปกรณ์แต่ละชิ้นไปใช้ในระบบของคุณเองได้อย่างอิสระ — สัญญาอนุญาตแบบเปิดกว้างคือจุดประสงค์หลัก ไม่ใช่แค่เชิงอรรถ
-
-<div align="center">
-
-**hook ธรรมดา + CLI เล็กๆ** ｜ **ออกแบบแบบ fail-open** ｜ **MIT**
-
-</div>
-
 <!-- family:generated:family-footer:start -->
 
 ---
@@ -232,3 +218,18 @@ for t in tests/*.sh; do bash "$t"; done
 | แกนนอน | [Sitter](https://github.com/caty-ai/sitter) | พี่เลี้ยงของงานที่มอบหมายให้เอเจนต์ — เฝ้าดู เก็บหลักฐาน และรีสตาร์ต | เปิดแล้ว・MIT |
 
 <!-- family:generated:family-footer:end -->
+
+---
+
+<a id="license"></a>
+
+## สัญญาอนุญาต
+
+[MIT](LICENSE) คิทนี้มีอยู่เพื่อให้คุณคัดลอกอุปกรณ์แต่ละชิ้นไปใช้ในระบบของคุณเองได้อย่างอิสระ — สัญญาอนุญาตแบบเปิดกว้างคือจุดประสงค์หลัก ไม่ใช่แค่เชิงอรรถ
+
+<div align="center">
+
+**hook ธรรมดา + CLI เล็กๆ** ｜ **ออกแบบแบบ fail-open** ｜ **MIT**
+
+</div>
+

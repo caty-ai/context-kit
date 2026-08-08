@@ -198,20 +198,6 @@ The details live in reader-specific docs, one level deeper.
 | Every environment variable, file contract, and exit-code rule | [Reference](docs/reference.md)（[🇯🇵 日本語](docs/reference.ja.md)） |
 | One piece at a time, with install and verify steps | [lg](docs/lg.md) ・ [scratch-persist](docs/scratch-persist.md) ・ [brief-validator](docs/brief-validator.md) ・ [safety-hooks](docs/safety-hooks.md) ・ [recall](docs/recall.md) |
 
----
-
-<a id="license"></a>
-
-## License
-
-[MIT](LICENSE). The kit exists so you can copy pieces into your own setup freely — a permissive license is the point, not a footnote.
-
-<div align="center">
-
-**Plain hooks + small CLIs** ｜ **Fail-open by design** ｜ **MIT**
-
-</div>
-
 <!-- family:generated:family-footer:start -->
 
 ---
@@ -232,3 +218,18 @@ Part of the **Caty AI family** — open tools for running a family of AI agents.
 | Horizontal | [Sitter](https://github.com/caty-ai/sitter) | Babysits delegated agent runs — watches, keeps evidence, restarts | published, MIT |
 
 <!-- family:generated:family-footer:end -->
+
+---
+
+<a id="license"></a>
+
+## License
+
+[MIT](LICENSE). The kit exists so you can copy pieces into your own setup freely — a permissive license is the point, not a footnote.
+
+<div align="center">
+
+**Plain hooks + small CLIs** ｜ **Fail-open by design** ｜ **MIT**
+
+</div>
+
