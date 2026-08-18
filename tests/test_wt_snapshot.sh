@@ -10,10 +10,16 @@ FAIL_COUNT=0
 RUN_STDOUT=""
 RUN_STDERR=""
 RUN_STATUS=0
+EXTERNAL_TMP_DIRS=()
 
 cleanup() {
+  local external_tmp_dir=""
   chmod -R u+rwx "${TMP_DIR}" 2>/dev/null || true
   rm -rf "${TMP_DIR}"
+  for external_tmp_dir in "${EXTERNAL_TMP_DIRS[@]}"; do
+    chmod -R u+rwx "${external_tmp_dir}" 2>/dev/null || true
+    rm -rf "${external_tmp_dir}"
+  done
 }
 trap cleanup EXIT
 
@@ -239,6 +245,20 @@ set -euo pipefail
 create=0
 archive=""
 previous=""
+
+if [ -n "${CK_TEST_TAR_LOG:-}" ]; then
+  printf '%q ' "$@" >> "${CK_TEST_TAR_LOG}"
+  printf '\n' >> "${CK_TEST_TAR_LOG}"
+fi
+
+if [ "${CK_TEST_TAR_REJECT_BSD:-0}" = "1" ]; then
+  for argument in "$@"; do
+    case "${argument}" in
+      --no-mac-metadata|--no-fflags) exit 64 ;;
+    esac
+  done
+fi
+
 for argument in "$@"; do
   if [ "${previous}" = "-cpf" ]; then
     archive="${argument}"
@@ -261,10 +281,11 @@ fi
 
 "${CK_TEST_REAL_TAR}" "$@"
 
-if [ "${create}" -eq 1 ] && [ "${CK_TEST_TAR_MODE:-}" = "extra-member" ]; then
+if [ "${create}" -eq 1 ] &&
+   { [ "${CK_TEST_TAR_MODE:-}" = "extra-member" ] ||
+     [ "${CK_TEST_TAR_INJECT_EXTRA:-0}" = "1" ]; }; then
   printf 'not listed\n' > "${CK_TEST_TAR_INJECT_ROOT}/unlisted-member.txt"
   COPYFILE_DISABLE=1 "${CK_TEST_REAL_TAR}" \
-    --no-mac-metadata --no-xattrs --no-acls --no-fflags \
     -rf "${archive}" -C "${CK_TEST_TAR_INJECT_ROOT}" unlisted-member.txt
 fi
 EOF_TAR_WRAPPER
@@ -676,6 +697,101 @@ case_payload_member_set_mismatch_is_fail_closed() {
     record_pass "${case_name}"
   else
     record_fail "${case_name}" "an unlisted tar member must abort verification before refs or objects are written"
+  fi
+}
+
+case_deep_legal_tree_snapshots_and_restores() {
+  local case_name="deep-legal-tree-snapshots-and-restores"
+  local sandbox fixture main_repo worktree component deep_dir relative relative_file
+  local ref restore_dir snapshot_status
+  sandbox=$(mktemp -d /private/tmp/context-kit-wt-snapshot-deep.XXXXXX)
+  EXTERNAL_TMP_DIRS+=("${sandbox}")
+  fixture=$(make_fixture_repo "${sandbox}")
+  main_repo=$(printf '%s\n' "${fixture}" | sed -n '1p')
+  worktree=$(printf '%s\n' "${fixture}" | sed -n '2p')
+  component=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  deep_dir="${worktree}"
+  relative=""
+  for _index in $(seq 1 23); do
+    deep_dir="${deep_dir}/${component}"
+    if [ -z "${relative}" ]; then
+      relative="${component}"
+    else
+      relative="${relative}/${component}"
+    fi
+  done
+  mkdir -p "${deep_dir}"
+  printf 'deep bytes\n' > "${deep_dir}/deep.txt"
+  relative_file="${relative}/deep.txt"
+  restore_dir="${sandbox}/restore"
+
+  run_in_dir "${worktree}" "${WT_SNAPSHOT}"
+  snapshot_status="${RUN_STATUS}"
+  ref=$(snapshot_ref_for_prefix "${main_repo}" "$(basename "${worktree}")" | tail -n 1)
+  if [ "${snapshot_status}" != "0" ] || [ -z "${ref}" ]; then
+    record_fail "${case_name}" "a legal relative path of ${#relative_file} bytes must create a snapshot"
+    return
+  fi
+
+  run_in_dir "${main_repo}" "${WT_SNAPSHOT}" restore "${ref}" "${restore_dir}"
+  if [ "${RUN_STATUS}" = "0" ] &&
+     [ "$(cat "${restore_dir}/${relative_file}")" = "deep bytes" ] &&
+     assert_tree_equal "${worktree}" "${restore_dir}"; then
+    record_pass "${case_name}"
+  else
+    record_fail "${case_name}" "the deep snapshot must restore the complete worktree"
+  fi
+}
+
+case_tar_capability_subset_keeps_both_backstops() {
+  local case_name="tar-capability-subset-keeps-both-backstops"
+  local sandbox="${TMP_DIR}/${case_name}"
+  local fixture main_repo worktree wrapper_dir inject_root real_tar tar_log scan_log create_line
+  local refs_before refs_after objects_before objects_after
+  # The scanner command expands in its later bash -c process.
+  # shellcheck disable=SC2016
+  local scan_cmd='byte_count=$(wc -c | tr -d " "); printf "%s\n" "${byte_count}" >> "${CK_TEST_SCAN_LOG}"'
+  fixture=$(make_fixture_repo "${sandbox}")
+  main_repo=$(printf '%s\n' "${fixture}" | sed -n '1p')
+  worktree=$(printf '%s\n' "${fixture}" | sed -n '2p')
+  wrapper_dir="${sandbox}/tar-wrapper"
+  inject_root="${sandbox}/inject-root"
+  tar_log="${sandbox}/tar.log"
+  scan_log="${sandbox}/scan.log"
+  real_tar=$(command -v tar)
+  mkdir -p "${inject_root}"
+  write_tar_interceptor "${wrapper_dir}"
+  printf 'dirty bytes\n' > "${worktree}/visible.txt"
+  refs_before=$(snapshot_refs "${main_repo}")
+  objects_before=$(all_objects "${main_repo}")
+
+  run_in_dir "${worktree}" env \
+    PATH="${wrapper_dir}:${PATH}" \
+    CK_TEST_REAL_TAR="${real_tar}" \
+    CK_TEST_TAR_REJECT_BSD=1 \
+    CK_TEST_TAR_INJECT_EXTRA=1 \
+    CK_TEST_TAR_INJECT_ROOT="${inject_root}" \
+    CK_TEST_TAR_LOG="${tar_log}" \
+    CK_TEST_SCAN_LOG="${scan_log}" \
+    CK_WTSNAP_SECRET_SCAN_CMD="${scan_cmd}" \
+    "${WT_SNAPSHOT}"
+  refs_after=$(snapshot_refs "${main_repo}")
+  objects_after=$(all_objects "${main_repo}")
+  create_line=$(grep -- '-cpf' "${tar_log}" | tail -n 1 || true)
+
+  if [ "${RUN_STATUS}" = "70" ] &&
+     [ "${refs_before}" = "${refs_after}" ] &&
+     [ "${objects_before}" = "${objects_after}" ] &&
+     grep -Fq 'tar metadata suppression unavailable: --no-mac-metadata --no-fflags' "${RUN_STDERR}" &&
+     grep -Fq 'payload member set does not match archive list' "${RUN_STDERR}" &&
+     [[ "${create_line}" == *--no-xattrs* ]] &&
+     [[ "${create_line}" == *--no-acls* ]] &&
+     [[ "${create_line}" != *--no-mac-metadata* ]] &&
+     [[ "${create_line}" != *--no-fflags* ]] &&
+     awk '$1 >= 512 { found=1 } END { exit !found }' "${scan_log}"; then
+    record_pass "${case_name}"
+  else
+    record_fail "${case_name}" "the supported tar subset must proceed through raw scanning and strict member verification"
   fi
 }
 
@@ -1236,6 +1352,8 @@ case_secret_scan_bytes_match_restored_payload_under_mutation
 case_xattr_metadata_leak_is_scanned_raw
 case_xattr_metadata_is_excluded_without_scanner
 case_payload_member_set_mismatch_is_fail_closed
+case_deep_legal_tree_snapshots_and_restores
+case_tar_capability_subset_keeps_both_backstops
 case_clean_detached_unreachable_head_creates_ref
 case_clean_worktree_is_explicit_noop
 case_snapshot_leaves_user_state_untouched

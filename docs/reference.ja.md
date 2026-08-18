@@ -101,6 +101,8 @@
 | `CK_WTSNAP_IDENT` | すべての git 呼び出しに使う任意の identity。ユーザーの git config を読まず、author / committer 環境変数へ展開して使う | 組み込みのツール identity |
 | `CK_WTSNAP_TTL_DAYS` | `wt-snapshot prune` が期限切れ ref を一覧表示する際のしきい値日数。`prune` は一覧表示のみで、削除はしない | `30` |
 
+capture は invocation ごとに local `tar` を1回 capability-probe します。未対応の metadata-suppression option は明示的な警告付きで除外します。test archive を作成・検査できず構成を確定できない probe は、pack 前に `tar capability probe failed: ...` と exit `70` で中断します。このツールの Linux / GNU tar path は未検証です。
+
 ---
 
 ## スクラッチ契約
@@ -140,5 +142,5 @@ find "${scratch_dir}" \( -type f -name 'scratch-*.md' -o -type f -name '.scratch
 | `wt-snapshot` | `0` | スナップショット作成成功、`restore` 成功、`prune` が0件以上を一覧表示、または capture が clean no-op を検知して何も書かなかった場合 |
 | `wt-snapshot` | `64` | 使い方エラー |
 | `wt-snapshot` | スキャナの終了ステータス | `CK_WTSNAP_SECRET_SCAN_CMD` が非ゼロを返した。スナップショットは fail-closed で中断し、ref は1つも書かれず、スキャナの終了ステータスをそのまま返す |
-| `wt-snapshot` | `70` | スナップショットの構築・保存・復元中に git、archive 検証、またはリポジトリ操作が失敗した |
+| `wt-snapshot` | `70` | スナップショットの構築・保存・復元中に git、tar capability probe（`tar capability probe failed: ...`）、archive 検証、またはリポジトリ操作が失敗した |
 | `wt-snapshot` | `75` | populated submodule が staged 済みの親 gitlink と異なるか、staged・modified・untracked・ignored・flag-hidden state を含む。v1 は submodule content を capture しないため、削除を停止する必要がある |

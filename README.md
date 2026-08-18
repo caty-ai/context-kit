@@ -9,7 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![python](https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white)
 ![node](https://img.shields.io/badge/node-18%2B_optional-339933?logo=nodedotjs&logoColor=white)
-![platform](https://img.shields.io/badge/platform-macOS_%7C_Linux-lightgrey)
+![platform](https://img.shields.io/badge/platform-macOS_tested_%7C_Linux_unverified-lightgrey)
 
 Hand real work to an AI agent and small accidents follow: one giant log floods its working memory,<br>
 a risky delete is one keystroke away, an API key almost lands in a file.<br>
@@ -101,8 +101,8 @@ Before installing, check what it runs on.
 
 | Item | Support |
 | --- | --- |
-| macOS | ✅ tested |
-| Linux | ⚠️ expected to work (POSIX shell + Python standard library), not yet verified |
+| macOS | ✅ tested, including `wt-snapshot` with the system bsdtar |
+| Linux | ⚠️ not yet verified; `wt-snapshot` capability-probes local tar options and reports unsupported metadata suppression |
 | AI agent | Claude Code ✅ — the hooks target its hook spec |
 | Python | 3.9 or newer, required by most pieces |
 | Node.js | 18 or newer, only for two of the three safety guards |

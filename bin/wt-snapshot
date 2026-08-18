@@ -33,10 +33,12 @@ UNTRACKED_LIST=""
 IGNORED_LIST=""
 SUBMODULE_LIST=""
 ARCHIVE_LIST=""
+ARCHIVE_DIR_LIST=""
 UNTRACKED_DIR_LIST=""
 INDEX_PATCH_FILE=""
 STAGED_PATH_LIST=""
 SUBMODULE_CHECK_SEQ=0
+TAR_SUPPRESSION_FLAGS=()
 
 cleanup() {
   if [ -n "${TMP_DIR}" ] && [ -d "${TMP_DIR}" ]; then
@@ -288,6 +290,46 @@ ensure_tmp_dir() {
   TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/wt-snapshot.XXXXXX")
 }
 
+probe_tar_suppression_flags() {
+  local probe_root="${TMP_DIR}/tar-probe"
+  local probe_archive="${TMP_DIR}/tar-probe.tar"
+  local probe_expected="${TMP_DIR}/tar-probe.expected"
+  local probe_listed="${TMP_DIR}/tar-probe.listed"
+  local flag=""
+  local unavailable=()
+
+  mkdir -p "${probe_root}"
+  printf 'probe\n' > "${probe_root}/probe-file"
+  printf 'probe-file\n' > "${probe_expected}"
+
+  if ! COPYFILE_DISABLE=1 tar -cf "${probe_archive}" -C "${probe_root}" probe-file \
+      >/dev/null 2>"${TMP_DIR}/tar-probe.err" ||
+     ! LC_ALL=C tar -tf "${probe_archive}" > "${probe_listed}" \
+      2>>"${TMP_DIR}/tar-probe.err" ||
+     ! cmp -s "${probe_expected}" "${probe_listed}"; then
+    die_runtime "tar capability probe failed: cannot create and inspect a test archive"
+  fi
+
+  TAR_SUPPRESSION_FLAGS=()
+  for flag in --no-mac-metadata --no-xattrs --no-acls --no-fflags; do
+    if COPYFILE_DISABLE=1 tar "${flag}" -cf "${probe_archive}" \
+        -C "${probe_root}" probe-file >/dev/null 2>"${TMP_DIR}/tar-probe.err"; then
+      if ! LC_ALL=C tar -tf "${probe_archive}" > "${probe_listed}" \
+          2>>"${TMP_DIR}/tar-probe.err" ||
+         ! cmp -s "${probe_expected}" "${probe_listed}"; then
+        die_runtime "tar capability probe failed while validating ${flag}"
+      fi
+      TAR_SUPPRESSION_FLAGS+=("${flag}")
+    else
+      unavailable+=("${flag}")
+    fi
+  done
+
+  if [ "${#unavailable[@]}" -gt 0 ]; then
+    err "tar metadata suppression unavailable: ${unavailable[*]}; continuing with supported options; raw archive scan and member verification remain mandatory"
+  fi
+}
+
 utc_ref_timestamp() {
   TZ=UTC date '+%Y%m%dT%H%M%SZ'
 }
@@ -365,7 +407,8 @@ path_is_in_submodule() {
 
 append_explicit_path() {
   local dest="$1"
-  local rel_path="${2%/}"
+  local dir_dest="$2"
+  local rel_path="${3%/}"
   local abs_path="${WORKTREE_ROOT}/${rel_path}"
   local found=""
 
@@ -384,12 +427,16 @@ append_explicit_path() {
     path_is_git_metadata "${rel_path}" && continue
     path_is_in_submodule "${rel_path}" && continue
     printf '%s\0' "${rel_path}" >> "${dest}"
+    if [ -d "${found}" ] && [ ! -L "${found}" ]; then
+      printf '%s\0' "${rel_path}" >> "${dir_dest}"
+    fi
   done < <(find "${abs_path}" -name .git -prune -o -print0)
 }
 
 append_unignored_directories() {
   local dest="$1"
   local untracked_dir_dest="$2"
+  local dir_dest="$3"
   local abs_path=""
   local rel_path=""
 
@@ -402,6 +449,7 @@ append_unignored_directories() {
       continue
     fi
     printf '%s\0' "${rel_path}" >> "${dest}"
+    printf '%s\0' "${rel_path}" >> "${dir_dest}"
     if ! git_maybe ls-files --cached -- "${rel_path}/" | grep -q .; then
       printf '%s\0' "${rel_path}" >> "${untracked_dir_dest}"
     fi
@@ -432,6 +480,7 @@ collect_candidate_paths() {
   IGNORED_LIST="${TMP_DIR}/ignored.list"
   SUBMODULE_LIST="${TMP_DIR}/submodules.list"
   ARCHIVE_LIST="${TMP_DIR}/archive.list"
+  ARCHIVE_DIR_LIST="${TMP_DIR}/archive-dirs.list"
   UNTRACKED_DIR_LIST="${TMP_DIR}/untracked-dirs.list"
 
   append_existing_tracked_paths "${TRACKED_ARCHIVE_LIST}"
@@ -445,17 +494,18 @@ collect_candidate_paths() {
   fi
 
   : > "${ARCHIVE_LIST}"
+  : > "${ARCHIVE_DIR_LIST}"
   : > "${UNTRACKED_DIR_LIST}"
   while IFS= read -r -d '' rel_path; do
-    append_explicit_path "${ARCHIVE_LIST}" "${rel_path}"
+    append_explicit_path "${ARCHIVE_LIST}" "${ARCHIVE_DIR_LIST}" "${rel_path}"
   done < "${TRACKED_ARCHIVE_LIST}"
   while IFS= read -r -d '' rel_path; do
-    append_explicit_path "${ARCHIVE_LIST}" "${rel_path}"
+    append_explicit_path "${ARCHIVE_LIST}" "${ARCHIVE_DIR_LIST}" "${rel_path}"
   done < "${UNTRACKED_LIST}"
   while IFS= read -r -d '' rel_path; do
-    append_explicit_path "${ARCHIVE_LIST}" "${rel_path}"
+    append_explicit_path "${ARCHIVE_LIST}" "${ARCHIVE_DIR_LIST}" "${rel_path}"
   done < "${IGNORED_LIST}"
-  append_unignored_directories "${ARCHIVE_LIST}" "${UNTRACKED_DIR_LIST}"
+  append_unignored_directories "${ARCHIVE_LIST}" "${UNTRACKED_DIR_LIST}" "${ARCHIVE_DIR_LIST}"
 }
 
 is_tracked_dirty() {
@@ -710,8 +760,7 @@ scan_payload_archive() {
   local scan_root="${TMP_DIR}/scan-root"
   local rel_path=""
   mkdir -p "${scan_root}"
-  if ! COPYFILE_DISABLE=1 tar \
-    --no-mac-metadata --no-xattrs --no-acls --no-fflags \
+  if ! COPYFILE_DISABLE=1 tar "${TAR_SUPPRESSION_FLAGS[@]}" \
     --no-same-owner -xpf "${payload_file}" -C "${scan_root}"; then
     die_runtime "failed to extract snapshot payload for scanning"
   fi
@@ -734,84 +783,68 @@ scan_raw_payload_archive() {
   exit "${rc}"
 }
 
-write_bsdtar_escaped_member() {
-  local value="$1"
-  local character=""
-  local ordinal=0
-  local octal=""
-  local index=0
-  local LC_ALL=C
-
-  while [ "${index}" -lt "${#value}" ]; do
-    character="${value:${index}:1}"
-    case "${character}" in
-      $'\a') printf '\\a' ;;
-      $'\b') printf '\\b' ;;
-      $'\f') printf '\\f' ;;
-      $'\n') printf '\\n' ;;
-      $'\r') printf '\\r' ;;
-      $'\t') printf '\\t' ;;
-      $'\v') printf '\\v' ;;
-      \\) printf '\\\\' ;;
-      *)
-        printf -v ordinal '%d' "'${character}"
-        if [ "${ordinal}" -ge 32 ] && [ "${ordinal}" -le 126 ]; then
-          printf '%s' "${character}"
-        else
-          printf -v octal '%03o' "${ordinal}"
-          printf '\\%s' "${octal}"
-        fi
-        ;;
-    esac
-    index=$((index + 1))
-  done
-  printf '\n'
-}
-
 verify_payload_members() {
   local payload_file="$1"
-  local verify_root="${TMP_DIR}/verify-root"
-  local listed_raw="${TMP_DIR}/verify.listed.raw"
-  local listed="${TMP_DIR}/verify.listed"
-  local expected_listed_raw="${TMP_DIR}/verify.expected-listed.raw"
-  local expected_listed="${TMP_DIR}/verify.expected-listed"
   local expected="${TMP_DIR}/verify.expected"
+  local expected_types_raw="${TMP_DIR}/verify.expected-types.raw"
+  local expected_types="${TMP_DIR}/verify.expected-types"
   local actual_raw="${TMP_DIR}/verify.actual.raw"
   local actual="${TMP_DIR}/verify.actual"
-  local abs_path=""
-  local rel_path=""
-  local listed_path=""
-
-  if ! LC_ALL=C tar -tf "${payload_file}" > "${listed_raw}"; then
-    die_runtime "failed to inspect snapshot payload archive"
-  fi
-  mkdir -p "${verify_root}"
-  if ! COPYFILE_DISABLE=1 tar \
-    --no-mac-metadata --no-xattrs --no-acls --no-fflags \
-    --no-same-owner -xpf "${payload_file}" -C "${verify_root}"; then
-    die_runtime "failed to extract snapshot payload for verification"
-  fi
-
-  : > "${expected_listed_raw}"
-  while IFS= read -r -d '' rel_path; do
-    listed_path="${rel_path}"
-    if [ -d "${verify_root}/${rel_path}" ] && [ ! -L "${verify_root}/${rel_path}" ]; then
-      listed_path="${listed_path}/"
-    fi
-    write_bsdtar_escaped_member "${listed_path}" >> "${expected_listed_raw}"
-  done < "${ARCHIVE_LIST}"
-  LC_ALL=C sort -u "${listed_raw}" > "${listed}"
-  LC_ALL=C sort -u "${expected_listed_raw}" > "${expected_listed}"
+  local actual_types_raw="${TMP_DIR}/verify.actual-types.raw"
+  local actual_types="${TMP_DIR}/verify.actual-types"
 
   LC_ALL=C sort -zu "${ARCHIVE_LIST}" > "${expected}"
-  : > "${actual_raw}"
-  while IFS= read -r -d '' abs_path; do
-    rel_path="${abs_path#"${verify_root}"/}"
-    printf '%s\0' "${rel_path}" >> "${actual_raw}"
-  done < <(find "${verify_root}" -mindepth 1 -print0)
-  LC_ALL=C sort -zu "${actual_raw}" > "${actual}"
+  if ! python3 - \
+      "${payload_file}" \
+      "${ARCHIVE_LIST}" \
+      "${ARCHIVE_DIR_LIST}" \
+      "${expected_types_raw}" \
+      "${actual_raw}" \
+      "${actual_types_raw}" <<'PY'
+import sys
+import tarfile
 
-  if ! cmp -s "${expected_listed}" "${listed}" || ! cmp -s "${expected}" "${actual}"; then
+(
+    payload_path,
+    archive_list_path,
+    directory_list_path,
+    expected_type_path,
+    member_path,
+    actual_type_path,
+) = sys.argv[1:]
+
+def read_nul_records(path):
+    with open(path, "rb") as source:
+        records = source.read().split(b"\0")
+    if records[-1] != b"":
+        raise ValueError(f"unterminated NUL list: {path}")
+    return records[:-1]
+
+directories = set(read_nul_records(directory_list_path))
+with open(expected_type_path, "wb") as expected_types:
+    for name in read_nul_records(archive_list_path):
+        expected_types.write((b"D" if name in directories else b"N") + name + b"\0")
+
+with tarfile.open(
+    payload_path,
+    mode="r:",
+    encoding="utf-8",
+    errors="surrogateescape",
+) as archive, open(member_path, "wb") as members, open(actual_type_path, "wb") as actual_types:
+    for member in archive:
+        name = member.name.encode("utf-8", "surrogateescape")
+        members.write(name + b"\0")
+        actual_types.write((b"D" if member.isdir() else b"N") + name + b"\0")
+PY
+  then
+    die_runtime "failed to inspect snapshot payload archive"
+  fi
+  LC_ALL=C sort -zu "${expected_types_raw}" > "${expected_types}"
+  LC_ALL=C sort -zu "${actual_raw}" > "${actual}"
+  LC_ALL=C sort -zu "${actual_types_raw}" > "${actual_types}"
+
+  if ! cmp -s "${expected}" "${actual}" ||
+     ! cmp -s "${expected_types}" "${actual_types}"; then
     die_runtime "payload member set does not match archive list"
   fi
 }
@@ -849,8 +882,7 @@ scan_staged_index_paths() {
 create_payload_archive() {
   local payload_file="$1"
 
-  if ! COPYFILE_DISABLE=1 tar \
-    --no-mac-metadata --no-xattrs --no-acls --no-fflags \
+  if ! COPYFILE_DISABLE=1 tar "${TAR_SUPPRESSION_FLAGS[@]}" \
     -cpf "${payload_file}" --no-recursion -C "${WORKTREE_ROOT}" --null -T "${ARCHIVE_LIST}"; then
     die_runtime "failed to create snapshot payload archive"
   fi
@@ -1112,6 +1144,7 @@ main() {
 
   case "${1:-}" in
     '')
+      probe_tar_suppression_flags
       run_snapshot
       ;;
     restore)

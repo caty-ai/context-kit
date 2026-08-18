@@ -65,6 +65,12 @@ wt-snapshot prune
 
 `prune` は `CK_WTSNAP_TTL_DAYS`（デフォルト `30`）で期限切れ判定を行い、人が後で確認・削除判断するための候補だけを出します。
 
+## tar 要件
+
+capture には、このツールが使う archive の作成・一覧・展開ができる local `tar` が必要です。Linux / GNU tar での `wt-snapshot` は、まだ実機検証していません。
+
+各 capture invocation の開始時に、`wt-snapshot` は小さな test archive を作成・検査し、続いて `--no-mac-metadata`、`--no-xattrs`、`--no-acls`、`--no-fflags` を1つずつ probe します。以降の tar command には、受理された suppression option だけを渡します。未対応 option は stderr の `tar metadata suppression unavailable: ...` で明示し、対応済み subset で capture を続行しますが、設定済み raw-archive scan と厳密な member-set verification は必須のままです。基礎 archive の作成・検証に失敗して安全な構成を確定できない場合は、pack 前に `tar capability probe failed: ...` と exit `70` で中断します。
+
 ## Capture 契約
 
 `wt-snapshot` は false safety を避けるため、次を対象にします。
@@ -115,7 +121,7 @@ CK_WTSNAP_SECRET_SCAN_CMD='my-scan-wrapper' wt-snapshot
 - 終了 `0`: snapshot を続行できる
 - 非ゼロ終了: fail-closed で中断し、ref は1つも書かず、その scan 終了コードをそのまま返す
 
-ツールは非再帰の明示的な archive path list を1つ凍結し、scan と pack の両方が同じ list を消費します。directory root は先に展開されるため、untracked nested repository 内の file が scan を通らず tar payload に入ることはありません。archive 作成時は permission bits を保持しつつ、AppleDouble / macOS metadata、extended attributes、ACLs、file flags を無効化します。作成後は payload を隔離 directory へ展開し、byte-exact な NUL-delimited member set を凍結済み path list と比較します。不一致は object や ref を書く前に exit `70` で中断します。
+ツールは非再帰の明示的な archive path list を1つ凍結し、scan と pack の両方が同じ list を消費します。directory root は先に展開されるため、untracked nested repository 内の file が scan を通らず tar payload に入ることはありません。archive 作成時は permission bits を保持しつつ、前述の capability probe で対応を確認できた AppleDouble / macOS metadata、extended attributes、ACLs、file flags の suppression を要求します。作成後は tar から member path と directory type を直接読み、凍結済み path / directory list と byte-exact な NUL-delimited set として比較します。比較のための第2 extraction root に対する filesystem lookup は行いません。不一致は object や ref を書く前に exit `70` で中断します。
 
 scanner 設定時は、凍結した payload から candidate file bytes を scan した後、残存 archive metadata channel への fail-closed な備えとして raw tar stream 全体を1回 scan します。変更された index blob も binary content を含む raw bytes のまま scanner へ流し、staged-index patch も snapshot object を書く前に scan します。
 
@@ -123,7 +129,7 @@ scan-hit と git failure を機械的に区別したい場合は、scanner wrapp
 
 ## Restore 契約
 
-`restore` は full-copy payload を fresh な一時 staging directory へ展開し、その後で空の target へ materialize します。file bytes、symlink、permission bits、capture 済みの空 directory を保持します。extended attributes、ACLs、file flags、AppleDouble metadata は意図的に capture しません。base tree を復元して worktree delta を適用する方式ではなく、この metadata 境界内で payload 自体が capture 時の worktree 完全コピーです。保存済み staged-index patch だけは前述のとおり target の Git index に適用します。
+`restore` は full-copy payload を fresh な一時 staging directory へ展開し、その後で空の target へ materialize します。file bytes、symlink、permission bits、capture 済みの空 directory を保持します。検証済み macOS tar path では、extended attributes、ACLs、file flags、AppleDouble metadata は意図的に capture しません。local tar に未対応の suppression option がある場合は警告し、その metadata channel を除去したとは扱いません。残存する raw archive bytes は、scanner 設定時には引き続き scan 対象です。base tree を復元して worktree delta を適用する方式ではなく、この明示済み metadata 境界内で payload 自体が capture 時の worktree 完全コピーです。保存済み staged-index patch だけは前述のとおり target の Git index に適用します。
 
 snapshot は信頼済みの local artifact として扱います。restore は展開前に absolute member name と `..` path component を拒否し、`--no-same-owner` を付けて target 外の一時領域へ展開します。ただし手作りの hostile ref は link などの archive 機能について platform `tar` の挙動に依存します。信頼できない repository の ref は restore しないでください。
 

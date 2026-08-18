@@ -9,7 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![python](https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white)
 ![node](https://img.shields.io/badge/node-18%2B_optional-339933?logo=nodedotjs&logoColor=white)
-![platform](https://img.shields.io/badge/platform-macOS_%7C_Linux-lightgrey)
+![platform](https://img.shields.io/badge/platform-macOS_tested_%7C_Linux_unverified-lightgrey)
 
 มอบงานจริงให้ AI เอเจนต์ทำ แล้วอุบัติเหตุเล็กๆ ก็จะตามมา ล็อกไฟล์มหึมาไฟล์เดียวท่วมความจำการทำงานของมัน<br>
 คำสั่งลบไฟล์อันตรายอยู่ห่างแค่ปุ่มเดียว กุญแจ API เกือบหลุดเข้าไปในไฟล์<br>
@@ -101,8 +101,8 @@ flowchart LR
 
 | รายการ | การรองรับ |
 | --- | --- |
-| macOS | ✅ ทดสอบแล้ว |
-| Linux | ⚠️ คาดว่าใช้ได้ (POSIX shell + Python standard library) แต่ยังไม่ได้ตรวจสอบ |
+| macOS | ✅ ทดสอบแล้ว รวมถึง `wt-snapshot` ที่ใช้ system bsdtar |
+| Linux | ⚠️ ยังไม่ได้ตรวจสอบ; `wt-snapshot` จะตรวจ capability ของ local tar และแจ้ง metadata suppression ที่ไม่รองรับอย่างชัดเจน |
 | AI เอเจนต์ | Claude Code ✅ — hook ออกแบบมาตาม hook spec ของมันโดยเฉพาะ |
 | Python | 3.9 ขึ้นไป จำเป็นสำหรับอุปกรณ์ส่วนใหญ่ |
 | Node.js | 18 ขึ้นไป ใช้เฉพาะการ์ดความปลอดภัย 2 ใน 3 ตัว |

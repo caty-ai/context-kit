@@ -9,7 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![python](https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white)
 ![node](https://img.shields.io/badge/node-18%2B_optional-339933?logo=nodedotjs&logoColor=white)
-![platform](https://img.shields.io/badge/platform-macOS_%7C_Linux-lightgrey)
+![platform](https://img.shields.io/badge/platform-macOS_tested_%7C_Linux_unverified-lightgrey)
 
 AI エージェントに本物の仕事を任せると、小さな事故がついてきます。巨大なログが作業記憶（会話に持てるコンテキスト）を押し流し、<br>
 危ない削除コマンドまであと1歩、API キーがファイルに書き込まれる寸前——。<br>
@@ -101,8 +101,8 @@ flowchart LR
 
 | 項目 | 対応 |
 | --- | --- |
-| macOS | ✅ 検証済み |
-| Linux | ⚠️ 動く想定（POSIX シェル + Python 標準ライブラリのみ）だが未検証 |
+| macOS | ✅ system bsdtar を使う `wt-snapshot` を含め検証済み |
+| Linux | ⚠️ 未検証。`wt-snapshot` は local tar option を capability-probe し、未対応の metadata suppression を明示する |
 | AI エージェント | Claude Code ✅ — hook はその hook 仕様が対象 |
 | Python | 3.9 以上（ほとんどの装備で必要） |
 | Node.js | 18 以上（安全ガード3本のうち2本だけで必要） |

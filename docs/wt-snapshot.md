@@ -65,6 +65,12 @@ wt-snapshot prune
 
 `prune` compares snapshot age against `CK_WTSNAP_TTL_DAYS` (default `30`) and prints candidates for a human to inspect or delete manually later.
 
+## Tar requirements
+
+Capture requires a local `tar` that can create, list, and extract the archives used by this tool. Linux/GNU tar has not yet been verified for `wt-snapshot`.
+
+At the start of each capture invocation, `wt-snapshot` creates and inspects a trivial test archive, then probes `--no-mac-metadata`, `--no-xattrs`, `--no-acls`, and `--no-fflags` separately. Only the accepted suppression options are passed to later tar commands. Unsupported options are reported on stderr as `tar metadata suppression unavailable: ...`; capture continues with the supported subset, while the configured raw-archive scan and strict member-set verification remain mandatory. If baseline archive creation or validation cannot establish the configuration, capture stops before packing with exit `70` and a `tar capability probe failed: ...` message.
+
 ## Capture contract
 
 `wt-snapshot` is designed to avoid false safety:
@@ -115,7 +121,7 @@ Behavior:
 - zero exit: snapshot may continue
 - nonzero exit: snapshot aborts fail-closed, no ref is written, and the scanner's exit status is returned
 
-The tool freezes one explicit, non-recursive archive path list and uses that same list for both scanning and packing. Directory roots are expanded first, so files inside an untracked nested repository cannot enter the tar payload without being scanned. Archive creation disables AppleDouble/macOS metadata, extended attributes, ACLs, and file flags while preserving permission bits. After creation, the payload is extracted into an isolated directory and its byte-exact, NUL-delimited member set is compared with the frozen path list. A mismatch aborts with exit `70` before any object or ref is written.
+The tool freezes one explicit, non-recursive archive path list and uses that same list for both scanning and packing. Directory roots are expanded first, so files inside an untracked nested repository cannot enter the tar payload without being scanned. Archive creation requests suppression of AppleDouble/macOS metadata, extended attributes, ACLs, and file flags while preserving permission bits, subject to the capability probe above. After creation, member paths and directory types are read directly from the tar and compared with the frozen path and directory lists as byte-exact, NUL-delimited sets. The comparison performs no lookup through a second extraction root. A mismatch aborts with exit `70` before any object or ref is written.
 
 When a scanner is configured, candidate file bytes are scanned from the frozen payload, then the raw tar stream is scanned once as a fail-closed backstop for residual archive metadata channels. Changed index blobs are also streamed to the scanner in their raw form (including binary content), and the staged-index patch is scanned before any snapshot object is written.
 
@@ -123,7 +129,7 @@ The intended shape is a wrapper command with a dedicated nonzero exit code for a
 
 ## Restore contract
 
-`restore` extracts the full-copy payload into a fresh staging directory, then materializes it into the empty target. File bytes, symlinks, permission bits, and captured empty directories are preserved. Extended attributes, ACLs, file flags, and AppleDouble metadata are intentionally not captured. The tool does not reconstruct a base tree and then apply a worktree delta: the payload itself is the complete captured worktree copy within that metadata boundary. A saved staged-index patch is applied only to the target's Git index as described above.
+`restore` extracts the full-copy payload into a fresh staging directory, then materializes it into the empty target. File bytes, symlinks, permission bits, and captured empty directories are preserved. On the verified macOS tar path, extended attributes, ACLs, file flags, and AppleDouble metadata are intentionally not captured. When a local tar lacks a suppression option, capture warns instead of claiming that metadata channel was removed; any residual raw archive bytes still pass through the configured scanner. The tool does not reconstruct a base tree and then apply a worktree delta: the payload itself is the complete captured worktree copy within that declared metadata boundary. A saved staged-index patch is applied only to the target's Git index as described above.
 
 Snapshots are trusted local artifacts. Restore rejects absolute archive member names and `..` path components before extraction, extracts with `--no-same-owner`, and stages extraction away from the target. A hand-made hostile ref can still exercise the behavior of the platform `tar` implementation for archive features such as links; do not restore refs from an untrusted repository.
 
