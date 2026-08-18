@@ -279,6 +279,12 @@ if [ "${create}" -eq 1 ] && [ "${CK_TEST_TAR_MODE:-}" = "metadata-leak" ]; then
   exit $?
 fi
 
+if [ "${create}" -eq 1 ] && [ "${CK_TEST_TAR_MODE:-}" = "member-type-mismatch" ]; then
+  type_flip_target="${CK_TEST_TAR_TYPE_FLIP_ROOT}/${CK_TEST_TAR_TYPE_FLIP_PATH}"
+  rmdir "${type_flip_target}"
+  printf 'changed from directory to file\n' > "${type_flip_target}"
+fi
+
 "${CK_TEST_REAL_TAR}" "$@"
 
 if [ "${create}" -eq 1 ] &&
@@ -697,6 +703,41 @@ case_payload_member_set_mismatch_is_fail_closed() {
     record_pass "${case_name}"
   else
     record_fail "${case_name}" "an unlisted tar member must abort verification before refs or objects are written"
+  fi
+}
+
+case_payload_member_type_mismatch_is_fail_closed() {
+  local case_name="payload-member-type-mismatch-is-fail-closed"
+  local sandbox="${TMP_DIR}/${case_name}"
+  local fixture main_repo worktree wrapper_dir real_tar type_flip_path
+  local refs_before refs_after objects_before objects_after
+  fixture=$(make_fixture_repo "${sandbox}")
+  main_repo=$(printf '%s\n' "${fixture}" | sed -n '1p')
+  worktree=$(printf '%s\n' "${fixture}" | sed -n '2p')
+  wrapper_dir="${sandbox}/tar-wrapper"
+  real_tar=$(command -v tar)
+  type_flip_path="type-flip-target"
+  write_tar_interceptor "${wrapper_dir}"
+  mkdir -p "${worktree}/${type_flip_path}"
+  refs_before=$(snapshot_refs "${main_repo}")
+  objects_before=$(all_objects "${main_repo}")
+
+  run_in_dir "${worktree}" env \
+    PATH="${wrapper_dir}:${PATH}" \
+    CK_TEST_REAL_TAR="${real_tar}" \
+    CK_TEST_TAR_MODE=member-type-mismatch \
+    CK_TEST_TAR_TYPE_FLIP_ROOT="${worktree}" \
+    CK_TEST_TAR_TYPE_FLIP_PATH="${type_flip_path}" \
+    "${WT_SNAPSHOT}"
+  refs_after=$(snapshot_refs "${main_repo}")
+  objects_after=$(all_objects "${main_repo}")
+  if [ "${RUN_STATUS}" = "70" ] &&
+     [ "${refs_before}" = "${refs_after}" ] &&
+     [ "${objects_before}" = "${objects_after}" ] &&
+     grep -Fq 'payload member set does not match archive list' "${RUN_STDERR}"; then
+    record_pass "${case_name}"
+  else
+    record_fail "${case_name}" "a directory packed as a file at the same path must abort verification before refs or objects are written"
   fi
 }
 
@@ -1352,6 +1393,7 @@ case_secret_scan_bytes_match_restored_payload_under_mutation
 case_xattr_metadata_leak_is_scanned_raw
 case_xattr_metadata_is_excluded_without_scanner
 case_payload_member_set_mismatch_is_fail_closed
+case_payload_member_type_mismatch_is_fail_closed
 case_deep_legal_tree_snapshots_and_restores
 case_tar_capability_subset_keeps_both_backstops
 case_clean_detached_unreachable_head_creates_ref
