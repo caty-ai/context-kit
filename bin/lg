@@ -137,12 +137,14 @@ if [ "$SCRATCH_OK" -eq 1 ] && [ "$LINES" -gt "$TOTAL_SHOWN_LINES" ]; then
   OMITTED=$((LINES - HEAD_LINES - TAIL_LINES))
   head -n "$HEAD_LINES" "$TMP_OUT"
   printf '\n... [%d lines omitted / %d bytes — full output: %s] ...\n\n' "$OMITTED" "$SIZE" "$SCRATCH_FILE"
+  printf '... [省略した。省略部分を記憶で再構成するな — 必要なら上記ファイルを Read/Grep] ...\n'
   tail -n "$TAIL_LINES" "$TMP_OUT"
 elif [ "$SCRATCH_OK" -eq 0 ] && [ "$LINES" -gt "$TOTAL_SHOWN_LINES" ]; then
   OMITTED=$((LINES - HEAD_LINES - TAIL_LINES))
   KEEP_TMP_OUT=1
   head -n "$HEAD_LINES" "$TMP_OUT"
   printf '... [%d lines omitted / %d bytes - scratch unavailable, full output temp: %s] ...\n' "$OMITTED" "$SIZE" "$TMP_OUT"
+  printf '... [省略した。省略部分を記憶で再構成するな — 必要なら上記ファイルを Read/Grep] ...\n'
   tail -n "$TAIL_LINES" "$TMP_OUT"
 else
   cat "$TMP_OUT"

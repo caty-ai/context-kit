@@ -100,6 +100,7 @@ case_large_preview() {
      ! grep -Fq 'line-041' "${RUN_STDOUT}" &&
      ! grep -Fq 'line-160' "${RUN_STDOUT}" &&
      grep -Fq '... [120 lines omitted /' "${RUN_STDOUT}" &&
+     grep -Fq '... [省略した。省略部分を記憶で再構成するな — 必要なら上記ファイルを Read/Grep] ...' "${RUN_STDOUT}" &&
      [ -n "${scratch_file}" ] &&
      [ -f "${scratch_file}" ] &&
      grep -Fq 'mode: proactive-lg' "${scratch_file}" &&
@@ -108,7 +109,7 @@ case_large_preview() {
      grep -Fq 'line-160' "${scratch_file}"; then
     record_pass "${case_name}"
   else
-    record_fail "${case_name}" "expected 40/40 preview, omitted marker, and scratch metadata"
+    record_fail "${case_name}" "expected 40/40 preview, omitted markers, and scratch metadata"
   fi
 }
 
@@ -255,7 +256,7 @@ case_large_scratch_fail_keeps_temp() {
      grep -Fq 'scratch unavailable, full output temp:' "${RUN_STDOUT}" &&
      ! grep -Fq '[lg] full output preserved:' "${RUN_STDOUT}" &&
      [ "${warning_count}" = "1" ] &&
-     [ "${stdout_lines}" -le 81 ] &&
+     [ "${stdout_lines}" -le 82 ] &&
      [ -n "${temp_file}" ] &&
      [ -r "${temp_file}" ] &&
      grep -Fq 'line-041' "${temp_file}" &&

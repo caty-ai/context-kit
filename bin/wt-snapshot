@@ -1,0 +1,1167 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+PROGRAM="${0##*/}"
+REF_PREFIX="refs/worktree-snapshots"
+DEFAULT_TTL_DAYS=30
+DEFAULT_IDENT_NAME="context-kit wt-snapshot"
+DEFAULT_IDENT_EMAIL="wt-snapshot@context-kit.invalid"
+PAYLOAD_PATH="wt-snapshot.payload.tar"
+MANIFEST_PATH="wt-snapshot.manifest"
+INDEX_PATCH_PATH="wt-snapshot.index.patch"
+EX_USAGE=64
+EX_GIT=70
+EX_SUBMODULE_DIRTY=75
+NULL_OID=0000000000000000000000000000000000000000
+
+TMP_DIR=""
+WORKTREE_ROOT=""
+WORKTREE_GIT_DIR=""
+COMMON_GIT_DIR=""
+HEAD_COMMIT=""
+WORKTREE_NAME=""
+REF_WORKTREE_NAME=""
+IDENT_NAME=""
+IDENT_EMAIL=""
+GIT_ENV_BASE=()
+GIT_CTX_ARGS=()
+GIT_CONFIG_ARGS=()
+SCAN_COMMAND="${CK_WTSNAP_SECRET_SCAN_CMD:-}"
+TRACKED_ARCHIVE_LIST=""
+UNTRACKED_LIST=""
+IGNORED_LIST=""
+SUBMODULE_LIST=""
+ARCHIVE_LIST=""
+ARCHIVE_DIR_LIST=""
+UNTRACKED_DIR_LIST=""
+INDEX_PATCH_FILE=""
+STAGED_PATH_LIST=""
+SUBMODULE_CHECK_SEQ=0
+TAR_SUPPRESSION_FLAGS=()
+
+cleanup() {
+  if [ -n "${TMP_DIR}" ] && [ -d "${TMP_DIR}" ]; then
+    rm -rf "${TMP_DIR}"
+  fi
+}
+trap cleanup EXIT
+
+usage() {
+  cat >&2 <<EOF
+usage: ${PROGRAM} [restore <ref> <target-dir> | prune]
+EOF
+}
+
+say() {
+  printf '%s\n' "$*"
+}
+
+err() {
+  printf '%s: %s\n' "${PROGRAM}" "$*" >&2
+}
+
+die_usage() {
+  err "$*"
+  usage
+  exit "${EX_USAGE}"
+}
+
+die_runtime() {
+  err "$*"
+  exit "${EX_GIT}"
+}
+
+git_fail() {
+  err "$*"
+  exit "${EX_GIT}"
+}
+
+trim() {
+  local value="$1"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf '%s' "${value}"
+}
+
+coerce_numeric_or_default() {
+  local value="$1"
+  local fallback="$2"
+
+  case "${value}" in
+    ''|*[!0-9]*)
+      printf '%s\n' "${fallback}"
+      ;;
+    *)
+      printf '%s\n' "${value}"
+      ;;
+  esac
+}
+
+parse_ident() {
+  local raw="${CK_WTSNAP_IDENT:-}"
+
+  IDENT_NAME="${DEFAULT_IDENT_NAME}"
+  IDENT_EMAIL="${DEFAULT_IDENT_EMAIL}"
+
+  if [ -z "${raw}" ]; then
+    return
+  fi
+
+  if [[ "${raw}" =~ ^(.*)[[:space:]]\<([^<>[:space:]]+)\>[[:space:]]*$ ]]; then
+    IDENT_NAME="$(trim "${BASH_REMATCH[1]}")"
+    IDENT_EMAIL="${BASH_REMATCH[2]}"
+  elif [[ "${raw}" == *:* ]]; then
+    IDENT_NAME="$(trim "${raw%%:*}")"
+    IDENT_EMAIL="$(trim "${raw#*:}")"
+  else
+    IDENT_NAME="$(trim "${raw}")"
+  fi
+
+  [ -n "${IDENT_NAME}" ] || IDENT_NAME="${DEFAULT_IDENT_NAME}"
+  [ -n "${IDENT_EMAIL}" ] || IDENT_EMAIL="${DEFAULT_IDENT_EMAIL}"
+}
+
+build_git_env() {
+  GIT_ENV_BASE=(
+    "GIT_CONFIG_NOSYSTEM=1"
+    "GIT_CONFIG_SYSTEM=/dev/null"
+    "GIT_CONFIG_GLOBAL=/dev/null"
+    "GIT_ATTR_NOSYSTEM=1"
+    "GIT_OPTIONAL_LOCKS=0"
+    "GIT_PAGER=cat"
+    "GIT_TERMINAL_PROMPT=0"
+    "GIT_AUTHOR_NAME=${IDENT_NAME}"
+    "GIT_AUTHOR_EMAIL=${IDENT_EMAIL}"
+    "GIT_COMMITTER_NAME=${IDENT_NAME}"
+    "GIT_COMMITTER_EMAIL=${IDENT_EMAIL}"
+  )
+  GIT_CONFIG_ARGS=(
+    -c core.fsmonitor=false
+    -c core.hooksPath=/dev/null
+    -c core.attributesFile=/dev/null
+    -c core.excludesFile=/dev/null
+    -c commit.gpgSign=false
+    -c tag.gpgSign=false
+    -c credential.helper=
+  )
+}
+
+git_base() {
+  env \
+    -u GIT_DIR \
+    -u GIT_WORK_TREE \
+    -u GIT_INDEX_FILE \
+    -u GIT_EXTERNAL_DIFF \
+    -u GIT_CONFIG_PARAMETERS \
+    -u GIT_CONFIG_COUNT \
+    "${GIT_ENV_BASE[@]}" \
+    git "${GIT_CONFIG_ARGS[@]}" "$@"
+}
+
+git_maybe() {
+  git_base "${GIT_CTX_ARGS[@]}" "$@"
+}
+
+git_at_maybe() {
+  local directory="$1"
+  shift
+  env \
+    -u GIT_DIR \
+    -u GIT_WORK_TREE \
+    -u GIT_INDEX_FILE \
+    -u GIT_EXTERNAL_DIFF \
+    -u GIT_CONFIG_PARAMETERS \
+    -u GIT_CONFIG_COUNT \
+    "${GIT_ENV_BASE[@]}" \
+    git "${GIT_CONFIG_ARGS[@]}" -C "${directory}" "$@"
+}
+
+git_at_run() {
+  local directory="$1"
+  shift
+  if ! git_at_maybe "${directory}" "$@"; then
+    git_fail "git -C ${directory} $* failed"
+  fi
+}
+
+git_run() {
+  if ! git_maybe "$@"; then
+    git_fail "git $* failed"
+  fi
+}
+
+git_capture() {
+  local __var_name="$1"
+  shift
+  local output=""
+
+  if ! output=$(git_maybe "$@" 2>"${TMP_DIR}/git.err"); then
+    local detail=""
+    if [ -s "${TMP_DIR}/git.err" ]; then
+      detail=$(tr '\n' ' ' < "${TMP_DIR}/git.err")
+      detail=$(trim "${detail}")
+    fi
+    if [ -n "${detail}" ]; then
+      git_fail "git $* failed: ${detail}"
+    fi
+    git_fail "git $* failed"
+  fi
+  printf -v "${__var_name}" '%s' "${output}"
+}
+
+git_to_file() {
+  local dest="$1"
+  shift
+  if ! git_maybe "$@" >"${dest}" 2>"${TMP_DIR}/git.err"; then
+    local detail=""
+    if [ -s "${TMP_DIR}/git.err" ]; then
+      detail=$(tr '\n' ' ' < "${TMP_DIR}/git.err")
+      detail=$(trim "${detail}")
+    fi
+    if [ -n "${detail}" ]; then
+      git_fail "git $* failed: ${detail}"
+    fi
+    git_fail "git $* failed"
+  fi
+}
+
+with_temp_index_maybe() {
+  local index_file="$1"
+  shift
+  env \
+    -u GIT_DIR \
+    -u GIT_WORK_TREE \
+    -u GIT_EXTERNAL_DIFF \
+    -u GIT_CONFIG_PARAMETERS \
+    -u GIT_CONFIG_COUNT \
+    "${GIT_ENV_BASE[@]}" \
+    "GIT_INDEX_FILE=${index_file}" \
+    git "${GIT_CONFIG_ARGS[@]}" "${GIT_CTX_ARGS[@]}" "$@"
+}
+
+with_temp_index_run() {
+  local index_file="$1"
+  shift
+  if ! with_temp_index_maybe "${index_file}" "$@"; then
+    git_fail "git $* failed with temporary index"
+  fi
+}
+
+with_temp_index_capture() {
+  local __var_name="$1"
+  local index_file="$2"
+  shift 2
+  local output=""
+  if ! output=$(with_temp_index_maybe "${index_file}" "$@" 2>"${TMP_DIR}/git.err"); then
+    local detail=""
+    if [ -s "${TMP_DIR}/git.err" ]; then
+      detail=$(tr '\n' ' ' < "${TMP_DIR}/git.err")
+      detail=$(trim "${detail}")
+    fi
+    if [ -n "${detail}" ]; then
+      git_fail "git $* failed with temporary index: ${detail}"
+    fi
+    git_fail "git $* failed with temporary index"
+  fi
+  printf -v "${__var_name}" '%s' "${output}"
+}
+
+discover_repo_context() {
+  git_capture WORKTREE_ROOT rev-parse --show-toplevel
+  git_capture WORKTREE_GIT_DIR rev-parse --absolute-git-dir
+  git_capture COMMON_GIT_DIR rev-parse --git-common-dir
+  case "${COMMON_GIT_DIR}" in
+    /*) ;;
+    *) COMMON_GIT_DIR="${WORKTREE_ROOT}/${COMMON_GIT_DIR}" ;;
+  esac
+  if ! HEAD_COMMIT=$(git_maybe rev-parse --verify HEAD 2>"${TMP_DIR}/git.err"); then
+    die_runtime "repository has no HEAD commit; create an initial commit before snapshotting"
+  fi
+  WORKTREE_NAME=$(basename "${WORKTREE_ROOT}")
+  REF_WORKTREE_NAME=$(printf '%s' "${WORKTREE_NAME}" | LC_ALL=C tr -c 'A-Za-z0-9._-' '-')
+  REF_WORKTREE_NAME="${REF_WORKTREE_NAME#-}"
+  REF_WORKTREE_NAME="${REF_WORKTREE_NAME%-}"
+  [ -n "${REF_WORKTREE_NAME}" ] || REF_WORKTREE_NAME="worktree"
+  GIT_CTX_ARGS=(-C "${WORKTREE_ROOT}" --git-dir="${WORKTREE_GIT_DIR}" --work-tree="${WORKTREE_ROOT}")
+}
+
+ensure_tmp_dir() {
+  TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/wt-snapshot.XXXXXX")
+}
+
+probe_tar_suppression_flags() {
+  local probe_root="${TMP_DIR}/tar-probe"
+  local probe_archive="${TMP_DIR}/tar-probe.tar"
+  local probe_expected="${TMP_DIR}/tar-probe.expected"
+  local probe_listed="${TMP_DIR}/tar-probe.listed"
+  local flag=""
+  local unavailable=()
+
+  mkdir -p "${probe_root}"
+  printf 'probe\n' > "${probe_root}/probe-file"
+  printf 'probe-file\n' > "${probe_expected}"
+
+  if ! COPYFILE_DISABLE=1 tar -cf "${probe_archive}" -C "${probe_root}" probe-file \
+      >/dev/null 2>"${TMP_DIR}/tar-probe.err" ||
+     ! LC_ALL=C tar -tf "${probe_archive}" > "${probe_listed}" \
+      2>>"${TMP_DIR}/tar-probe.err" ||
+     ! cmp -s "${probe_expected}" "${probe_listed}"; then
+    die_runtime "tar capability probe failed: cannot create and inspect a test archive"
+  fi
+
+  TAR_SUPPRESSION_FLAGS=()
+  for flag in --no-mac-metadata --no-xattrs --no-acls --no-fflags; do
+    if COPYFILE_DISABLE=1 tar "${flag}" -cf "${probe_archive}" \
+        -C "${probe_root}" probe-file >/dev/null 2>"${TMP_DIR}/tar-probe.err"; then
+      if ! LC_ALL=C tar -tf "${probe_archive}" > "${probe_listed}" \
+          2>>"${TMP_DIR}/tar-probe.err" ||
+         ! cmp -s "${probe_expected}" "${probe_listed}"; then
+        die_runtime "tar capability probe failed while validating ${flag}"
+      fi
+      TAR_SUPPRESSION_FLAGS+=("${flag}")
+    else
+      unavailable+=("${flag}")
+    fi
+  done
+
+  if [ "${#unavailable[@]}" -gt 0 ]; then
+    err "tar metadata suppression unavailable: ${unavailable[*]}; continuing with supported options; raw archive scan and member verification remain mandatory"
+  fi
+}
+
+utc_ref_timestamp() {
+  TZ=UTC date '+%Y%m%dT%H%M%SZ'
+}
+
+utc_manifest_timestamp() {
+  TZ=UTC date '+%Y-%m-%dT%H:%M:%SZ'
+}
+
+candidate_exists() {
+  local rel_path="$1"
+  local abs_path="${WORKTREE_ROOT}/${rel_path}"
+  [ -e "${abs_path}" ] || [ -L "${abs_path}" ]
+}
+
+append_existing_tracked_paths() {
+  local dest="$1"
+  local raw="${TMP_DIR}/tracked.raw"
+  local record=""
+  local mode=""
+  local rel_path=""
+
+  : > "${dest}"
+  : > "${SUBMODULE_LIST}"
+  git_to_file "${raw}" ls-files -s -z --cached
+  while IFS= read -r -d '' record; do
+    mode="${record%% *}"
+    rel_path="${record#*$'\t'}"
+    if [ "${mode}" = "160000" ]; then
+      printf '%s\0' "${rel_path}" >> "${SUBMODULE_LIST}"
+      continue
+    fi
+    if candidate_exists "${rel_path}"; then
+      printf '%s\0' "${rel_path}" >> "${dest}"
+    fi
+  done < "${raw}"
+}
+
+append_ls_files_output() {
+  local dest="$1"
+  shift
+  local raw="${TMP_DIR}/ls-files.raw"
+
+  if ! git_maybe "$@" >"${raw}" 2>"${TMP_DIR}/git.err"; then
+    local detail=""
+    if [ -s "${TMP_DIR}/git.err" ]; then
+      detail=$(tr '\n' ' ' < "${TMP_DIR}/git.err")
+      detail=$(trim "${detail}")
+    fi
+    if [ -n "${detail}" ]; then
+      git_fail "git $* failed: ${detail}"
+    fi
+    git_fail "git $* failed"
+  fi
+  cat "${raw}" >> "${dest}"
+}
+
+path_is_git_metadata() {
+  local rel_path="${1%/}"
+  case "/${rel_path}/" in
+    */.git/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+path_is_in_submodule() {
+  local rel_path="${1%/}"
+  local submodule=""
+  while IFS= read -r -d '' submodule; do
+    case "${rel_path}" in
+      "${submodule}"|"${submodule}"/*) return 0 ;;
+    esac
+  done < "${SUBMODULE_LIST}"
+  return 1
+}
+
+append_explicit_path() {
+  local dest="$1"
+  local dir_dest="$2"
+  local rel_path="${3%/}"
+  local abs_path="${WORKTREE_ROOT}/${rel_path}"
+  local found=""
+
+  [ -n "${rel_path}" ] || return 0
+  path_is_git_metadata "${rel_path}" && return 0
+  path_is_in_submodule "${rel_path}" && return 0
+  candidate_exists "${rel_path}" || return 0
+
+  if [ -L "${abs_path}" ] || [ ! -d "${abs_path}" ]; then
+    printf '%s\0' "${rel_path}" >> "${dest}"
+    return 0
+  fi
+
+  while IFS= read -r -d '' found; do
+    rel_path="${found#"${WORKTREE_ROOT}/"}"
+    path_is_git_metadata "${rel_path}" && continue
+    path_is_in_submodule "${rel_path}" && continue
+    printf '%s\0' "${rel_path}" >> "${dest}"
+    if [ -d "${found}" ] && [ ! -L "${found}" ]; then
+      printf '%s\0' "${rel_path}" >> "${dir_dest}"
+    fi
+  done < <(find "${abs_path}" -name .git -prune -o -print0)
+}
+
+append_unignored_directories() {
+  local dest="$1"
+  local untracked_dir_dest="$2"
+  local dir_dest="$3"
+  local abs_path=""
+  local rel_path=""
+
+  while IFS= read -r -d '' abs_path; do
+    [ "${abs_path}" != "${WORKTREE_ROOT}" ] || continue
+    rel_path="${abs_path#"${WORKTREE_ROOT}/"}"
+    path_is_git_metadata "${rel_path}" && continue
+    path_is_in_submodule "${rel_path}" && continue
+    if git_maybe check-ignore --quiet --no-index -- "${rel_path}/"; then
+      continue
+    fi
+    printf '%s\0' "${rel_path}" >> "${dest}"
+    printf '%s\0' "${rel_path}" >> "${dir_dest}"
+    if ! git_maybe ls-files --cached -- "${rel_path}/" | grep -q .; then
+      printf '%s\0' "${rel_path}" >> "${untracked_dir_dest}"
+    fi
+  done < <(find "${WORKTREE_ROOT}" -type d -name .git -prune -o -type d -print0)
+}
+
+parse_ignored_specs() {
+  local raw="${CK_WTSNAP_INCLUDE_IGNORED:-}"
+  local item=""
+  IGNORED_PATHSPECS=()
+
+  if [ -z "${raw}" ]; then
+    return
+  fi
+
+  IFS=',:' read -r -a items <<< "${raw}"
+  for item in "${items[@]}"; do
+    item=$(trim "${item}")
+    if [ -n "${item}" ]; then
+      IGNORED_PATHSPECS+=(":(glob)${item}")
+    fi
+  done
+}
+
+collect_candidate_paths() {
+  TRACKED_ARCHIVE_LIST="${TMP_DIR}/tracked.archive"
+  UNTRACKED_LIST="${TMP_DIR}/untracked.list"
+  IGNORED_LIST="${TMP_DIR}/ignored.list"
+  SUBMODULE_LIST="${TMP_DIR}/submodules.list"
+  ARCHIVE_LIST="${TMP_DIR}/archive.list"
+  ARCHIVE_DIR_LIST="${TMP_DIR}/archive-dirs.list"
+  UNTRACKED_DIR_LIST="${TMP_DIR}/untracked-dirs.list"
+
+  append_existing_tracked_paths "${TRACKED_ARCHIVE_LIST}"
+  : > "${UNTRACKED_LIST}"
+  append_ls_files_output "${UNTRACKED_LIST}" ls-files -z --others --exclude-standard
+
+  : > "${IGNORED_LIST}"
+  parse_ignored_specs
+  if [ "${#IGNORED_PATHSPECS[@]}" -gt 0 ]; then
+    append_ls_files_output "${IGNORED_LIST}" ls-files -z --others --ignored --exclude-standard --directory -- "${IGNORED_PATHSPECS[@]}"
+  fi
+
+  : > "${ARCHIVE_LIST}"
+  : > "${ARCHIVE_DIR_LIST}"
+  : > "${UNTRACKED_DIR_LIST}"
+  while IFS= read -r -d '' rel_path; do
+    append_explicit_path "${ARCHIVE_LIST}" "${ARCHIVE_DIR_LIST}" "${rel_path}"
+  done < "${TRACKED_ARCHIVE_LIST}"
+  while IFS= read -r -d '' rel_path; do
+    append_explicit_path "${ARCHIVE_LIST}" "${ARCHIVE_DIR_LIST}" "${rel_path}"
+  done < "${UNTRACKED_LIST}"
+  while IFS= read -r -d '' rel_path; do
+    append_explicit_path "${ARCHIVE_LIST}" "${ARCHIVE_DIR_LIST}" "${rel_path}"
+  done < "${IGNORED_LIST}"
+  append_unignored_directories "${ARCHIVE_LIST}" "${UNTRACKED_DIR_LIST}" "${ARCHIVE_DIR_LIST}"
+}
+
+is_tracked_dirty() {
+  local rc=0
+  if git_maybe diff --quiet --no-ext-diff --ignore-submodules=all --; then
+    return 1
+  else
+    rc=$?
+  fi
+
+  if [ "${rc}" -eq 1 ]; then
+    return 0
+  fi
+
+  git_fail "git diff --quiet --ignore-submodules=all -- failed"
+}
+
+is_index_dirty() {
+  local rc=0
+  if git_maybe diff --cached --quiet --no-ext-diff HEAD --; then
+    return 1
+  else
+    rc=$?
+  fi
+  if [ "${rc}" -eq 1 ]; then
+    return 0
+  fi
+  git_fail "git diff --cached --quiet HEAD -- failed"
+}
+
+flagged_path_differs_from_head() {
+  local rel_path="$1"
+  local abs_path="${WORKTREE_ROOT}/${rel_path}"
+  local entry=""
+  local index_entry=""
+  local head_mode=""
+  local head_oid=""
+  local index_mode=""
+  local index_oid=""
+  local worktree_oid=""
+  local link_target=""
+
+  if ! entry=$(git_maybe ls-tree HEAD -- "${rel_path}") || [ -z "${entry}" ]; then
+    return 0
+  fi
+  head_mode="${entry%% *}"
+  entry="${entry#* }"
+  head_oid="${entry#* }"
+  head_oid="${head_oid%%$'\t'*}"
+
+  if ! candidate_exists "${rel_path}"; then
+    if ! index_entry=$(git_maybe ls-files -s -- "${rel_path}") || [ -z "${index_entry}" ]; then
+      return 0
+    fi
+    index_entry="${index_entry%%$'\t'*}"
+    index_mode="${index_entry%% *}"
+    index_entry="${index_entry#* }"
+    index_oid="${index_entry%% *}"
+    [ "${index_mode}" != "${head_mode}" ] || [ "${index_oid}" != "${head_oid}" ]
+    return
+  fi
+
+  case "${head_mode}" in
+    120000)
+      [ -L "${abs_path}" ] || return 0
+      link_target=$(readlink "${abs_path}") || return 0
+      worktree_oid=$(printf '%s' "${link_target}" | git_maybe hash-object --stdin) || return 0
+      ;;
+    100755|100644)
+      [ -f "${abs_path}" ] && [ ! -L "${abs_path}" ] || return 0
+      worktree_oid=$(git_maybe hash-object --no-filters -- "${abs_path}") || return 0
+      if [ "${head_mode}" = "100755" ] && [ ! -x "${abs_path}" ]; then return 0; fi
+      if [ "${head_mode}" = "100644" ] && [ -x "${abs_path}" ]; then return 0; fi
+      ;;
+    *) return 0 ;;
+  esac
+  [ "${worktree_oid}" != "${head_oid}" ]
+}
+
+has_hidden_tracked_dirt() {
+  local raw="${TMP_DIR}/flagged.raw"
+  local record=""
+  local marker=""
+  local rel_path=""
+  git_to_file "${raw}" ls-files -v -z
+  while IFS= read -r -d '' record; do
+    marker="${record:0:1}"
+    case "${marker}" in h|S) ;; *) continue ;; esac
+    rel_path="${record:2}"
+    if flagged_path_differs_from_head "${rel_path}"; then
+      return 0
+    fi
+  done < "${raw}"
+  return 1
+}
+
+repo_flagged_path_differs_from_head() {
+  local repo_root="$1"
+  local rel_path="$2"
+  local abs_path="${repo_root}/${rel_path}"
+  local entry=""
+  local index_entry=""
+  local head_mode=""
+  local head_oid=""
+  local index_mode=""
+  local index_oid=""
+  local worktree_oid=""
+  local link_target=""
+
+  if ! entry=$(git_at_maybe "${repo_root}" ls-tree HEAD -- "${rel_path}") || [ -z "${entry}" ]; then return 0; fi
+  head_mode="${entry%% *}"
+  entry="${entry#* }"
+  head_oid="${entry#* }"
+  head_oid="${head_oid%%$'\t'*}"
+  if [ ! -e "${abs_path}" ] && [ ! -L "${abs_path}" ]; then
+    if ! index_entry=$(git_at_maybe "${repo_root}" ls-files -s -- "${rel_path}") || [ -z "${index_entry}" ]; then return 0; fi
+    index_entry="${index_entry%%$'\t'*}"
+    index_mode="${index_entry%% *}"
+    index_entry="${index_entry#* }"
+    index_oid="${index_entry%% *}"
+    [ "${index_mode}" != "${head_mode}" ] || [ "${index_oid}" != "${head_oid}" ]
+    return
+  fi
+  case "${head_mode}" in
+    120000)
+      [ -L "${abs_path}" ] || return 0
+      link_target=$(readlink "${abs_path}") || return 0
+      worktree_oid=$(printf '%s' "${link_target}" | git_at_maybe "${repo_root}" hash-object --stdin) || return 0
+      ;;
+    100755|100644)
+      [ -f "${abs_path}" ] && [ ! -L "${abs_path}" ] || return 0
+      worktree_oid=$(git_at_maybe "${repo_root}" hash-object --no-filters -- "${abs_path}") || return 0
+      if [ "${head_mode}" = "100755" ] && [ ! -x "${abs_path}" ]; then return 0; fi
+      if [ "${head_mode}" = "100644" ] && [ -x "${abs_path}" ]; then return 0; fi
+      ;;
+    *) return 0 ;;
+  esac
+  [ "${worktree_oid}" != "${head_oid}" ]
+}
+
+submodule_tree_has_uncaptured_state() {
+  local repo_root="$1"
+  local expected_oid="$2"
+  local display_path="$3"
+  local sub_head=""
+  local status=""
+  local flags_file=""
+  local links_file=""
+  local record=""
+  local marker=""
+  local rel_path=""
+  local mode=""
+  local child_oid=""
+
+  if ! git_at_maybe "${repo_root}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then return 0; fi
+  sub_head=$(git_at_maybe "${repo_root}" rev-parse HEAD 2>/dev/null || true)
+  [ -n "${sub_head}" ] && [ "${sub_head}" = "${expected_oid}" ] || return 0
+  if ! status=$(git_at_maybe "${repo_root}" status --porcelain=v2 --untracked-files=all --ignored=matching --ignore-submodules=none 2>/dev/null); then return 0; fi
+  [ -z "${status}" ] || return 0
+
+  SUBMODULE_CHECK_SEQ=$((SUBMODULE_CHECK_SEQ + 1))
+  flags_file="${TMP_DIR}/submodule-flags.${SUBMODULE_CHECK_SEQ}"
+  links_file="${TMP_DIR}/submodule-links.${SUBMODULE_CHECK_SEQ}"
+  if ! git_at_maybe "${repo_root}" ls-files -v -z > "${flags_file}"; then return 0; fi
+  while IFS= read -r -d '' record; do
+    marker="${record:0:1}"
+    case "${marker}" in h|S) ;; *) continue ;; esac
+    rel_path="${record:2}"
+    if repo_flagged_path_differs_from_head "${repo_root}" "${rel_path}"; then return 0; fi
+  done < "${flags_file}"
+
+  if ! git_at_maybe "${repo_root}" ls-files -s -z --cached > "${links_file}"; then return 0; fi
+  while IFS= read -r -d '' record; do
+    mode="${record%% *}"
+    [ "${mode}" = "160000" ] || continue
+    child_oid="${record#* }"
+    child_oid="${child_oid%% *}"
+    rel_path="${record#*$'\t'}"
+    [ -e "${repo_root}/${rel_path}/.git" ] || continue
+    if submodule_tree_has_uncaptured_state "${repo_root}/${rel_path}" "${child_oid}" "${display_path}/${rel_path}"; then return 0; fi
+  done < "${links_file}"
+  return 1
+}
+
+refuse_dirty_submodules() {
+  local rel_path=""
+  local index_entry=""
+  local index_oid=""
+
+  while IFS= read -r -d '' rel_path; do
+    [ -e "${WORKTREE_ROOT}/${rel_path}/.git" ] || continue
+    index_entry=$(git_maybe ls-files -s -- "${rel_path}")
+    index_oid=$(printf '%s\n' "${index_entry}" | awk 'NR == 1 { print $2 }')
+    if submodule_tree_has_uncaptured_state "${WORKTREE_ROOT}/${rel_path}" "${index_oid}" "${rel_path}"; then
+      err "submodule dirt present — not captured, do not delete: ${rel_path}"
+      exit "${EX_SUBMODULE_DIRTY}"
+    fi
+  done < "${SUBMODULE_LIST}"
+}
+
+head_reachable_from_any_ref() {
+  local refs=""
+  git_capture refs for-each-ref --format='%(refname)' --contains "${HEAD_COMMIT}"
+  [ -n "${refs}" ]
+}
+
+path_count() {
+  local file="$1"
+  local count=0
+  while IFS= read -r -d '' _path; do
+    count=$((count + 1))
+  done < "${file}"
+  printf '%s\n' "${count}"
+}
+
+scan_candidate_path() {
+  local scan_root="$1"
+  local rel_path="$2"
+  local abs_path="${scan_root}/${rel_path}"
+  local rc=0
+
+  if [ -z "${SCAN_COMMAND}" ]; then
+    return 0
+  fi
+
+  if [ -L "${abs_path}" ]; then
+    local target=""
+    target=$(readlink "${abs_path}" 2>/dev/null || true)
+    if printf '%s' "${target}" | bash -c "${SCAN_COMMAND}"; then
+      return 0
+    else
+      rc=$?
+    fi
+  elif [ -f "${abs_path}" ]; then
+    if bash -c "${SCAN_COMMAND}" < "${abs_path}"; then
+      return 0
+    else
+      rc=$?
+    fi
+  else
+    return 0
+  fi
+
+  if [ "${rc}" -ne 0 ]; then
+    printf '%s: secret scan failed for %q\n' "${PROGRAM}" "${rel_path}" >&2
+    exit "${rc}"
+  fi
+}
+
+scan_payload_archive() {
+  local payload_file="$1"
+  local scan_root="${TMP_DIR}/scan-root"
+  local rel_path=""
+  mkdir -p "${scan_root}"
+  if ! COPYFILE_DISABLE=1 tar "${TAR_SUPPRESSION_FLAGS[@]}" \
+    --no-same-owner -xpf "${payload_file}" -C "${scan_root}"; then
+    die_runtime "failed to extract snapshot payload for scanning"
+  fi
+  while IFS= read -r -d '' rel_path; do
+    scan_candidate_path "${scan_root}" "${rel_path}"
+  done < "${ARCHIVE_LIST}"
+}
+
+scan_raw_payload_archive() {
+  local payload_file="$1"
+  local rc=0
+
+  [ -n "${SCAN_COMMAND}" ] || return 0
+  if bash -c "${SCAN_COMMAND}" < "${payload_file}"; then
+    return 0
+  else
+    rc=$?
+  fi
+  printf '%s: secret scan failed for raw payload archive\n' "${PROGRAM}" >&2
+  exit "${rc}"
+}
+
+verify_payload_members() {
+  local payload_file="$1"
+  local expected="${TMP_DIR}/verify.expected"
+  local expected_types_raw="${TMP_DIR}/verify.expected-types.raw"
+  local expected_types="${TMP_DIR}/verify.expected-types"
+  local actual_raw="${TMP_DIR}/verify.actual.raw"
+  local actual="${TMP_DIR}/verify.actual"
+  local actual_types_raw="${TMP_DIR}/verify.actual-types.raw"
+  local actual_types="${TMP_DIR}/verify.actual-types"
+
+  LC_ALL=C sort -zu "${ARCHIVE_LIST}" > "${expected}"
+  if ! python3 - \
+      "${payload_file}" \
+      "${ARCHIVE_LIST}" \
+      "${ARCHIVE_DIR_LIST}" \
+      "${expected_types_raw}" \
+      "${actual_raw}" \
+      "${actual_types_raw}" <<'PY'
+import sys
+import tarfile
+
+(
+    payload_path,
+    archive_list_path,
+    directory_list_path,
+    expected_type_path,
+    member_path,
+    actual_type_path,
+) = sys.argv[1:]
+
+def read_nul_records(path):
+    with open(path, "rb") as source:
+        records = source.read().split(b"\0")
+    if records[-1] != b"":
+        raise ValueError(f"unterminated NUL list: {path}")
+    return records[:-1]
+
+directories = set(read_nul_records(directory_list_path))
+with open(expected_type_path, "wb") as expected_types:
+    for name in read_nul_records(archive_list_path):
+        expected_types.write((b"D" if name in directories else b"N") + name + b"\0")
+
+with tarfile.open(
+    payload_path,
+    mode="r:",
+    encoding="utf-8",
+    errors="surrogateescape",
+) as archive, open(member_path, "wb") as members, open(actual_type_path, "wb") as actual_types:
+    for member in archive:
+        name = member.name.encode("utf-8", "surrogateescape")
+        members.write(name + b"\0")
+        actual_types.write((b"D" if member.isdir() else b"N") + name + b"\0")
+PY
+  then
+    die_runtime "failed to inspect snapshot payload archive"
+  fi
+  LC_ALL=C sort -zu "${expected_types_raw}" > "${expected_types}"
+  LC_ALL=C sort -zu "${actual_raw}" > "${actual}"
+  LC_ALL=C sort -zu "${actual_types_raw}" > "${actual_types}"
+
+  if ! cmp -s "${expected}" "${actual}" ||
+     ! cmp -s "${expected_types}" "${actual_types}"; then
+    die_runtime "payload member set does not match archive list"
+  fi
+}
+
+scan_index_patch() {
+  if [ -s "${INDEX_PATCH_FILE}" ]; then
+    scan_candidate_path "${TMP_DIR}" "${INDEX_PATCH_FILE##*/}"
+  fi
+}
+
+scan_staged_index_paths() {
+  local rel_path=""
+  local entry=""
+  local mode=""
+  local rc=0
+
+  [ -n "${SCAN_COMMAND}" ] || return 0
+  while IFS= read -r -d '' rel_path; do
+    entry=$(git_maybe ls-files -s -- "${rel_path}")
+    mode="${entry%% *}"
+    case "${mode}" in
+      100644|100755|120000)
+        if git_maybe show ":${rel_path}" | bash -c "${SCAN_COMMAND}"; then
+          continue
+        else
+          rc=$?
+        fi
+        printf '%s: secret scan failed for staged %q\n' "${PROGRAM}" "${rel_path}" >&2
+        exit "${rc}"
+        ;;
+    esac
+  done < "${STAGED_PATH_LIST}"
+}
+
+create_payload_archive() {
+  local payload_file="$1"
+
+  if ! COPYFILE_DISABLE=1 tar "${TAR_SUPPRESSION_FLAGS[@]}" \
+    -cpf "${payload_file}" --no-recursion -C "${WORKTREE_ROOT}" --null -T "${ARCHIVE_LIST}"; then
+    die_runtime "failed to create snapshot payload archive"
+  fi
+}
+
+manifest_value() {
+  local key="$1"
+  local file="$2"
+  sed -n "s/^${key}=//p" "${file}" | head -n 1
+}
+
+create_snapshot_ref() {
+  local timestamp="$1"
+  local payload_file="$2"
+  local ref_name="${REF_PREFIX}/${REF_WORKTREE_NAME}/${timestamp}"
+  local manifest_file="${TMP_DIR}/manifest.txt"
+  local index_file="${TMP_DIR}/index"
+  local payload_oid=""
+  local manifest_oid=""
+  local index_patch_oid=""
+  local tree_oid=""
+  local commit_oid=""
+  local tracked_count=""
+  local untracked_count=""
+  local ignored_count=""
+  local created_at=""
+  local commit_message=""
+
+  tracked_count=$(path_count "${TRACKED_ARCHIVE_LIST}")
+  untracked_count=$(path_count "${UNTRACKED_LIST}")
+  ignored_count=$(path_count "${IGNORED_LIST}")
+  created_at=$(utc_manifest_timestamp)
+
+  cat > "${manifest_file}" <<EOF
+version=1
+created_at=${created_at}
+ref_name=${ref_name}
+worktree_name=${WORKTREE_NAME}
+ref_worktree_name=${REF_WORKTREE_NAME}
+head_commit=${HEAD_COMMIT}
+tracked_entries=${tracked_count}
+untracked_entries=${untracked_count}
+ignored_entries=${ignored_count}
+ignored_globs=${CK_WTSNAP_INCLUDE_IGNORED:-}
+payload_path=${PAYLOAD_PATH}
+index_patch_path=$([ -s "${INDEX_PATCH_FILE}" ] && printf '%s' "${INDEX_PATCH_PATH}")
+EOF
+
+  with_temp_index_run "${index_file}" read-tree --empty
+  with_temp_index_capture payload_oid "${index_file}" hash-object -w "${payload_file}"
+  with_temp_index_capture manifest_oid "${index_file}" hash-object -w "${manifest_file}"
+  with_temp_index_run "${index_file}" update-index --add --cacheinfo 100644 "${payload_oid}" "${PAYLOAD_PATH}"
+  with_temp_index_run "${index_file}" update-index --add --cacheinfo 100644 "${manifest_oid}" "${MANIFEST_PATH}"
+  if [ -s "${INDEX_PATCH_FILE}" ]; then
+    with_temp_index_capture index_patch_oid "${index_file}" hash-object -w "${INDEX_PATCH_FILE}"
+    with_temp_index_run "${index_file}" update-index --add --cacheinfo 100644 "${index_patch_oid}" "${INDEX_PATCH_PATH}"
+  fi
+  with_temp_index_capture tree_oid "${index_file}" write-tree
+
+  commit_message=$(
+    cat <<EOF
+wt-snapshot: preserve ${WORKTREE_NAME} at ${timestamp}
+
+worktree=${WORKTREE_NAME}
+head=${HEAD_COMMIT}
+tracked_entries=${tracked_count}
+untracked_entries=${untracked_count}
+ignored_entries=${ignored_count}
+EOF
+  )
+
+  with_temp_index_capture commit_oid "${index_file}" commit-tree "${tree_oid}" -p "${HEAD_COMMIT}" -m "${commit_message}"
+  if ! git_maybe update-ref "${ref_name}" "${commit_oid}" "${NULL_OID}" 2>"${TMP_DIR}/git.err"; then
+    local detail=""
+    if [ -s "${TMP_DIR}/git.err" ]; then
+      detail=$(tr '\n' ' ' < "${TMP_DIR}/git.err")
+      detail=$(trim "${detail}")
+    fi
+    case "${detail}" in
+      *"reference already exists"*|*"cannot lock ref"*)
+        return 2
+        ;;
+      "")
+        git_fail "git update-ref ${ref_name} failed"
+        ;;
+      *)
+        git_fail "git update-ref ${ref_name} failed: ${detail}"
+        ;;
+    esac
+  fi
+  say "snapshot created: ${ref_name} ${commit_oid}"
+}
+
+restore_snapshot() {
+  local ref="$1"
+  local target_dir="$2"
+  local manifest_tmp="${TMP_DIR}/restore.manifest"
+  local payload_tmp="${TMP_DIR}/restore.tar"
+  local members_tmp="${TMP_DIR}/restore.members"
+  local restore_root="${TMP_DIR}/restore-root"
+  local index_patch_tmp="${TMP_DIR}/restore.index.patch"
+  local version=""
+  local payload_path=""
+  local index_patch_path=""
+  local saved_head=""
+  local member=""
+
+  if [ -e "${target_dir}" ] && [ ! -d "${target_dir}" ]; then
+    die_runtime "restore target exists and is not a directory: ${target_dir}"
+  fi
+  if [ -d "${target_dir}" ] && find "${target_dir}" -mindepth 1 -print -quit | grep -q .; then
+    die_runtime "restore target must be empty: ${target_dir}"
+  fi
+
+  if ! git_maybe cat-file -e "${ref}^{commit}" >/dev/null 2>"${TMP_DIR}/git.err"; then
+    git_fail "snapshot ref not found: ${ref}"
+  fi
+  git_to_file "${manifest_tmp}" show "${ref}:${MANIFEST_PATH}"
+  version=$(manifest_value version "${manifest_tmp}")
+  payload_path=$(manifest_value payload_path "${manifest_tmp}")
+  index_patch_path=$(manifest_value index_patch_path "${manifest_tmp}")
+  saved_head=$(manifest_value head_commit "${manifest_tmp}")
+
+  if [ "${version}" != "1" ] || [ "${payload_path}" != "${PAYLOAD_PATH}" ]; then
+    die_runtime "unsupported snapshot manifest in ${ref}"
+  fi
+
+  git_to_file "${payload_tmp}" show "${ref}:${PAYLOAD_PATH}"
+  if ! tar -tf "${payload_tmp}" > "${members_tmp}"; then
+    die_runtime "failed to inspect snapshot payload for ${ref}"
+  fi
+  while IFS= read -r member || [ -n "${member}" ]; do
+    case "${member}" in
+      /*|..|../*|*/../*|*/..) die_runtime "unsafe path in snapshot payload: ${member}" ;;
+    esac
+  done < "${members_tmp}"
+
+  mkdir -p "${restore_root}"
+  if ! tar --no-same-owner -xpf "${payload_tmp}" -C "${restore_root}"; then
+    die_runtime "failed to restore ${ref} into ${target_dir}"
+  fi
+  mkdir -p "${target_dir}"
+  if ! (cd "${restore_root}" && tar -cpf - .) | tar --no-same-owner -xpf - -C "${target_dir}"; then
+    die_runtime "failed to materialize ${ref} into ${target_dir}"
+  fi
+
+  if [ -n "${index_patch_path}" ]; then
+    if [ "${index_patch_path}" != "${INDEX_PATCH_PATH}" ] || [ -z "${saved_head}" ]; then
+      die_runtime "unsupported staged-index metadata in ${ref}"
+    fi
+    git_to_file "${index_patch_tmp}" show "${ref}:${INDEX_PATCH_PATH}"
+    git_at_run "${target_dir}" init -q
+    git_at_run "${target_dir}" fetch -q --no-tags "${COMMON_GIT_DIR}" "${saved_head}"
+    git_at_run "${target_dir}" update-ref refs/heads/wt-snapshot-restore "${saved_head}"
+    git_at_run "${target_dir}" symbolic-ref HEAD refs/heads/wt-snapshot-restore
+    git_at_run "${target_dir}" read-tree "${saved_head}"
+    git_at_run "${target_dir}" apply --cached --binary "${index_patch_tmp}"
+    say "staged index restored in ${target_dir}/.git"
+  fi
+  say "restored ${ref} -> ${target_dir}"
+}
+
+timestamp_to_epoch() {
+  local timestamp="$1"
+
+  if date -j -u -f '%Y%m%dT%H%M%SZ' "${timestamp}" '+%s' >/dev/null 2>&1; then
+    date -j -u -f '%Y%m%dT%H%M%SZ' "${timestamp}" '+%s'
+  else
+    date -u -d "${timestamp}" '+%s'
+  fi
+}
+
+list_expired_refs() {
+  local ttl_days
+  local now_epoch
+  local cutoff
+  local refs_file="${TMP_DIR}/prune.refs"
+  local listed=0
+
+  ttl_days=$(coerce_numeric_or_default "${CK_WTSNAP_TTL_DAYS:-}" "${DEFAULT_TTL_DAYS}")
+  now_epoch=$(date -u '+%s')
+  cutoff=$((now_epoch - (ttl_days * 86400)))
+
+  git_to_file "${refs_file}" for-each-ref --format='%(refname)' "${REF_PREFIX}"
+  while IFS= read -r ref_name; do
+    [ -n "${ref_name}" ] || continue
+    local ts="${ref_name##*/}"
+    local epoch=""
+    if ! epoch=$(timestamp_to_epoch "${ts}" 2>/dev/null); then
+      continue
+    fi
+    if [ "${epoch}" -lt "${cutoff}" ]; then
+      listed=1
+      say "${ref_name}"
+    fi
+  done < "${refs_file}"
+
+  if [ "${listed}" -eq 0 ]; then
+    say "no expired snapshot refs"
+  fi
+}
+
+run_snapshot() {
+  local timestamp=""
+  local ref_name=""
+  local payload_file="${TMP_DIR}/payload.tar"
+
+  collect_candidate_paths
+  refuse_dirty_submodules
+  INDEX_PATCH_FILE="${TMP_DIR}/${INDEX_PATCH_PATH}"
+  STAGED_PATH_LIST="${TMP_DIR}/staged-paths.list"
+  git_to_file "${INDEX_PATCH_FILE}" diff --cached --binary --full-index --no-ext-diff HEAD --
+  git_to_file "${STAGED_PATH_LIST}" diff --cached --name-only -z --diff-filter=ACMRTUXB --no-ext-diff HEAD --
+
+  if ! is_tracked_dirty &&
+     ! is_index_dirty &&
+     ! has_hidden_tracked_dirt &&
+     [ ! -s "${UNTRACKED_LIST}" ] &&
+     [ ! -s "${UNTRACKED_DIR_LIST}" ] &&
+     [ ! -s "${IGNORED_LIST}" ] &&
+     head_reachable_from_any_ref; then
+    say "no-op: HEAD is already reachable and there is nothing to snapshot"
+    return 0
+  fi
+
+  create_payload_archive "${payload_file}"
+  scan_payload_archive "${payload_file}"
+  scan_raw_payload_archive "${payload_file}"
+  verify_payload_members "${payload_file}"
+  scan_staged_index_paths
+  scan_index_patch
+
+  while :; do
+    local create_rc=0
+    timestamp=$(utc_ref_timestamp)
+    ref_name="${REF_PREFIX}/${REF_WORKTREE_NAME}/${timestamp}"
+    if git_maybe show-ref --verify --quiet "${ref_name}"; then
+      sleep 1
+      continue
+    fi
+    if create_snapshot_ref "${timestamp}" "${payload_file}"; then
+      break
+    else
+      create_rc=$?
+    fi
+    if [ "${create_rc}" -eq 2 ]; then
+      sleep 1
+      continue
+    fi
+    break
+  done
+}
+
+main() {
+  ensure_tmp_dir
+  parse_ident
+  build_git_env
+  discover_repo_context
+
+  case "${1:-}" in
+    '')
+      probe_tar_suppression_flags
+      run_snapshot
+      ;;
+    restore)
+      [ $# -eq 3 ] || die_usage "restore requires <ref> <target-dir>"
+      restore_snapshot "$2" "$3"
+      ;;
+    prune)
+      [ $# -eq 1 ] || die_usage "prune takes no additional arguments"
+      list_expired_refs
+      ;;
+    -h|--help|help)
+      usage
+      ;;
+    *)
+      die_usage "unknown subcommand: $1"
+      ;;
+  esac
+}
+
+main "$@"

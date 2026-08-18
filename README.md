@@ -9,13 +9,13 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![python](https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white)
 ![node](https://img.shields.io/badge/node-18%2B_optional-339933?logo=nodedotjs&logoColor=white)
-![platform](https://img.shields.io/badge/platform-macOS_%7C_Linux-lightgrey)
+![platform](https://img.shields.io/badge/platform-macOS_tested_%7C_Linux_unverified-lightgrey)
 
 Hand real work to an AI agent and small accidents follow: one giant log floods its working memory,<br>
 a risky delete is one keystroke away, an API key almost lands in a file.<br>
-context-kit is a five-piece equipment set that stops these accidents mechanically, right where tools run.
+context-kit is a six-piece equipment set that stops these accidents mechanically, right where tools run.
 
-**Five pieces of equipment for your agent's desk.**
+**Six pieces of equipment for your agent's desk.**
 
 🔧 [Engineering guide](docs/engineering.md) ｜ 📘 [Reference](docs/reference.md)
 
@@ -44,7 +44,7 @@ If you let an AI agent do real work on your machine, you have probably met at le
 - The agent almost runs a destructive delete, or almost creates a repository as public
 - An API key nearly ends up inside a command line or a committed file
 
-context-kit is a five-piece equipment set for a single agent that prevents exactly these four accidents — by mechanism, not by asking the agent to be careful.
+context-kit is a six-piece equipment set for a single agent that prevents exactly these four accidents — by mechanism, not by asking the agent to be careful.
 
 ---
 
@@ -52,7 +52,7 @@ context-kit is a five-piece equipment set for a single agent that prevents exact
 
 ## What it does
 
-The five pieces stand at the choke points of agent work: right before a tool runs, and right after it produces output.
+Five of the six pieces stand at the choke points of agent work: right before a tool runs, and right after it produces output. The sixth captures a disposable worktree before you remove it.
 
 ```mermaid
 flowchart LR
@@ -85,6 +85,10 @@ flowchart LR
 
   Searches up to three memory layers at once (a hosted memory service, a local search index, plain files) and returns past work with the file path or memory ID it came from.
 
+- 📸 **wt-snapshot**
+
+  Captures a worktree's HEAD plus tracked, untracked, and configured ignored state into a durable ref in the main repository before a human deletes the worktree. It can later restore that exact state into a fresh directory.
+
 Every piece works on its own. Adopt one, ignore the rest, add more later.
 
 Before installing, check what it runs on.
@@ -97,13 +101,13 @@ Before installing, check what it runs on.
 
 | Item | Support |
 | --- | --- |
-| macOS | ✅ tested |
-| Linux | ⚠️ expected to work (POSIX shell + Python standard library), not yet verified |
+| macOS | ✅ tested, including `wt-snapshot` with the system bsdtar |
+| Linux | ⚠️ not yet verified; `wt-snapshot` capability-probes local tar options and reports unsupported metadata suppression |
 | AI agent | Claude Code ✅ — the hooks target its hook spec |
 | Python | 3.9 or newer, required by most pieces |
 | Node.js | 18 or newer, only for two of the three safety guards |
 
-If your agent tool has no hook mechanism, only `lg` and `recall` apply — they are plain command-line tools that work anywhere. The other three pieces are Claude Code hooks.
+If your agent tool has no hook mechanism, `lg`, `recall`, and `wt-snapshot` still apply — they are plain command-line tools that work anywhere. The other three pieces are Claude Code hooks.
 
 If that matches your machine, setup takes a few minutes.
 
@@ -143,7 +147,7 @@ sed "s|<CONTEXT_KIT_DIR>|$PWD|g" examples/settings.json
 
 Copy the `hooks` entries you want from that output into `~/.claude/settings.json` (or a project's `.claude/settings.json`). Merge them into the file — do not overwrite unrelated settings. Then restart Claude Code or run `/hooks` so the wiring is picked up.
 
-3. Optional: make the two CLIs (`lg`, `recall`) available by adding the kit's `bin` directory to your `PATH`.
+3. Optional: make the three CLIs (`lg`, `recall`, `wt-snapshot`) available by adding the kit's `bin` directory to your `PATH`.
 
 ```sh
 export PATH="$PWD/bin:$PATH"
@@ -196,7 +200,8 @@ The details live in reader-specific docs, one level deeper.
 | --- | --- |
 | The architecture, design principles, and an engineer's quick start | [Engineering guide](docs/engineering.md)（[🇯🇵 日本語](docs/engineering.ja.md)） |
 | Every environment variable, file contract, and exit-code rule | [Reference](docs/reference.md)（[🇯🇵 日本語](docs/reference.ja.md)） |
-| One piece at a time, with install and verify steps | [lg](docs/lg.md) ・ [scratch-persist](docs/scratch-persist.md) ・ [brief-validator](docs/brief-validator.md) ・ [safety-hooks](docs/safety-hooks.md) ・ [recall](docs/recall.md) |
+| Worktree snapshots before deletion, restore, ignored-path capture, and prune listing | [wt-snapshot](docs/wt-snapshot.md)（[🇯🇵 日本語](docs/wt-snapshot.ja.md)） |
+| One piece at a time, with install and verify steps | [lg](docs/lg.md) ・ [scratch-persist](docs/scratch-persist.md) ・ [brief-validator](docs/brief-validator.md) ・ [safety-hooks](docs/safety-hooks.md) ・ [recall](docs/recall.md) ・ [wt-snapshot](docs/wt-snapshot.md) |
 
 <!-- family:generated:family-footer:start -->
 
@@ -209,7 +214,7 @@ Part of the **Caty AI family** — open tools for running a family of AI agents.
 | Map | [Family OS](https://github.com/caty-ai/family-os) | The map of the whole family — every module, its state, and how they fit | published, MIT |
 | Rules | [Family Dev Handbook](https://github.com/caty-ai/family-dev-handbook) | The rules of the road — issues, PRs, worktrees, handoffs, parallel development | published, MIT |
 | Vertical · foundation | [Caty Agent Harness](https://github.com/caty-ai/caty-agent-harness) | Task backbone for AI agents — retries, checkpoints, and honest completion | published, MIT |
-| Vertical | **context-kit** | Five-piece context hygiene kit for one agent — bounded output, delegation briefs, safety guards, recall | published, MIT |
+| Vertical | **context-kit** | Six-piece context hygiene kit for one agent — bounded output, delegation briefs, safety guards, recall, worktree snapshots | published, MIT |
 | Vertical | [Persona Engine](https://github.com/caty-ai/persona-engine) | Gives an agent a persona — layered personality and graded emotion | published, MIT |
 | Vertical | **Persona Growth Loop** | Grows the persona itself — minimal, idempotent proposals | publication in preparation |
 | Vertical | [X Collector](https://github.com/caty-ai/x-collector) | Turns X and the web into one daily digest — for people and agents | published, MIT |
@@ -232,4 +237,3 @@ Part of the **Caty AI family** — open tools for running a family of AI agents.
 **Plain hooks + small CLIs** ｜ **Fail-open by design** ｜ **MIT**
 
 </div>
-

@@ -6,10 +6,11 @@
 
 ## 概要
 
-context-kit は、単一の CLI エージェントの作業コンテキストを2つの面から強化します。
+context-kit は、単一の CLI エージェントの作業コンテキストを3つの面から強化します。
 
 - **コンテキストの衛生管理** — 過大なツール出力が会話を埋め尽くさないようにし（`lg`、`scratch-persist`）、過去の作業を再び検索可能にします（`recall`）。
 - **事前安全確認（Pre-flight safety）** — 不適切なツール呼び出しを実行前にブロックします。薄い委譲（`brief-validator`）、破壊的コマンド、意図しない公開リポジトリ、認証情報の漏えい（`safety-hooks`）などです。
+- **削除からの復元** — 人が Git worktree を削除する前に、失われる親 worktree state を capture します（`wt-snapshot`）。
 
 すべての要素は、Claude Code のフック（ツール呼び出しの前後で起動する小さな Python/Node スクリプト）か、スタンドアロンの CLI のいずれかです。デーモンも共有ライブラリもなく、各要素間で共有される状態もありません。
 
@@ -23,13 +24,13 @@ cd context-kit
 sed "s|<CONTEXT_KIT_DIR>|$PWD|g" examples/settings.json
 ```
 
-出力された `hooks` エントリのうち必要なものを `~/.claude/settings.json` またはプロジェクトの `.claude/settings.json` にマージし、Claude Code を再起動する（または `/hooks` を実行する）、必要に応じて2つの CLI のために `bin/` を `PATH` に追加してください。その後、以下で確認します。
+出力された `hooks` エントリのうち必要なものを `~/.claude/settings.json` またはプロジェクトの `.claude/settings.json` にマージし、Claude Code を再起動する（または `/hooks` を実行する）、必要に応じて3つの CLI のために `bin/` を `PATH` に追加してください。その後、以下で確認します。
 
 ```sh
 for t in tests/*.sh; do bash "$t"; done
 ```
 
-すべてのテストスイートは一時ディレクトリのみを使用し、ケースごとに `PASS`/`FAIL` を1行出力します（6つのスイートで合計88ケース）。
+すべてのテストスイートは一時ディレクトリのみを使用し、ケースごとに `PASS`/`FAIL` を1行出力します（7つのスイートで合計108ケース）。
 
 ---
 
@@ -52,11 +53,13 @@ flowchart TB
     subgraph cli [スタンドアロン CLI]
         LG[lg<br>範囲限定の head+tail ラッパー]
         RC[recall<br>マルチレイヤーのメモリ検索]
+        WS[wt-snapshot<br>fail-closed な worktree capture/restore]
     end
     LG --> S[(スクラッチノート<br>0700 ディレクトリ / 0600 ファイル、7日 TTL)]
     SP --> S
     AK --> S
     RC --> S
+    WS --> R[(refs/worktree-snapshots)]
 ```
 
 | 要素 | エントリーポイント | トリガー | ランタイム | ドキュメント |
@@ -66,12 +69,13 @@ flowchart TB
 | brief-validator | `hooks/validate-subagent-brief.sh` → `.py` | `PreToolUse: Agent\|Task` | Python 3.9+ | [brief-validator.md](brief-validator.md) |
 | safety-hooks | `hooks/rm-enforcer.py`, `hooks/private-repo-enforcer.mjs`, `hooks/api-key-leak-detector.mjs` | `PreToolUse: Bash`（キー用には `Write\|Edit` も追加） | Python 3.9+ / Node 18+ | [safety-hooks.md](safety-hooks.md) |
 | recall | `bin/recall` | CLI | Python 3.9+ | [recall.md](recall.md) |
+| wt-snapshot | `bin/wt-snapshot` | worktree 削除前の CLI | Bash + Git + tar | [wt-snapshot.ja.md](wt-snapshot.ja.md) |
 
 ---
 
 ## 設計原則
 
-- **あらゆる箇所で fail-open** — 内部エラーの経路（ファイル欠如、インタプリタ欠如、不正な入力、タイムアウト）はすべて `0` で終了し、何も表示しません。終了コード `2` は本物の検知のためだけに予約されています。エージェントを止めてしまいかねない安全層は、安全層がないよりも悪いものです。
+- **hook は fail-open、削除前 capture は fail-closed** — hook の内部エラーは何も表示せず tool call を許可し、終了 `2` は本物の hook 検知にだけ使います。一方 `wt-snapshot` は、dirty submodule など削除対象 state を capture できたと証明できない場合に非ゼロを返します。
 - **ガード付きの配線形式** — すべてのフックは `sh -c 'f="<CONTEXT_KIT_DIR>/hooks/…"; if [ -f "$f" ]; then …; fi'` という形で配線されているため、置換されていないトークンやチェックアウトの移動があっても、すべてのツール呼び出しをブロックするのではなく no-op に縮退します。
 - **`CK_` 環境変数プレフィックス** — キットの設定変数とバイパス変数はすべて1つの名前空間を共有します（[全一覧](reference.ja.md)）。バイパスは明示的かつ可視的です。Bash では同一行のトークン、それ以外ではプロセス環境変数を使用します。
 - **単一のスクラッチ契約** — 何かを永続化するすべての要素は、同じスクラッチディレクトリのレイアウト、同じパーミッション、同じ7日 TTL のフロントマターで書き込みます。クリーンアップは意図的にユーザー自身が担うものとされています（ドキュメント化された `find` ワンライナーが1つあります）。
@@ -95,6 +99,7 @@ bash tests/test_scratch_persist.sh
 bash tests/test_brief_validator.sh
 bash tests/test_safety_hooks.sh
 bash tests/test_recall.sh
+bash tests/test_wt_snapshot.sh
 ```
 
 規約：一時ディレクトリのみを使用し、ケースごとに `PASS`/`FAIL` を1行出力し、スイートが実際のユーザーデータに触れないよう root-skip ガードを備えています。各要素のドキュメントの末尾には、実際にインストールした環境を検証するために貼り付けられる、正確な配線を確認するためのプローブがあります。

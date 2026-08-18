@@ -6,10 +6,11 @@ This page is the technical entry point: what the kit is made of, why it is shape
 
 ## Overview
 
-context-kit hardens a single CLI agent's working context on two fronts:
+context-kit hardens a single CLI agent's working context on three fronts:
 
 - **Context hygiene** — keep oversized tool output from flooding the conversation (`lg`, `scratch-persist`) and make past work findable again (`recall`).
 - **Pre-flight safety** — block bad tool calls before they run: thin delegations (`brief-validator`), destructive commands, accidental public repos, and credential leaks (`safety-hooks`).
+- **Deletion recovery** — capture all deletable parent-worktree state before a human removes a Git worktree (`wt-snapshot`).
 
 Everything is either a Claude Code hook (small Python/Node scripts triggered around tool calls) or a standalone CLI. There is no daemon, no shared library, and no state shared between pieces.
 
@@ -23,13 +24,13 @@ cd context-kit
 sed "s|<CONTEXT_KIT_DIR>|$PWD|g" examples/settings.json
 ```
 
-Merge the printed `hooks` entries you want into `~/.claude/settings.json` or a project's `.claude/settings.json`, restart Claude Code (or run `/hooks`), and optionally put `bin/` on your `PATH` for the two CLIs. Then verify:
+Merge the printed `hooks` entries you want into `~/.claude/settings.json` or a project's `.claude/settings.json`, restart Claude Code (or run `/hooks`), and optionally put `bin/` on your `PATH` for the three CLIs. Then verify:
 
 ```sh
 for t in tests/*.sh; do bash "$t"; done
 ```
 
-All suites are temp-directory-only and print one `PASS`/`FAIL` line per case (88 cases across 6 suites).
+All suites are temp-directory-only and print one `PASS`/`FAIL` line per case (108 cases across 7 suites).
 
 ---
 
@@ -52,11 +53,13 @@ flowchart TB
     subgraph cli [Standalone CLIs]
         LG[lg<br>bounded head+tail wrapper]
         RC[recall<br>multi-layer memory search]
+        WS[wt-snapshot<br>fail-closed worktree capture/restore]
     end
     LG --> S[(scratch notes<br>0700 dir / 0600 files, 7-day TTL)]
     SP --> S
     AK --> S
     RC --> S
+    WS --> R[(refs/worktree-snapshots)]
 ```
 
 | Piece | Entry point | Trigger | Runtime | Doc |
@@ -66,12 +69,13 @@ flowchart TB
 | brief-validator | `hooks/validate-subagent-brief.sh` → `.py` | `PreToolUse: Agent\|Task` | Python 3.9+ | [brief-validator.md](brief-validator.md) |
 | safety-hooks | `hooks/rm-enforcer.py`, `hooks/private-repo-enforcer.mjs`, `hooks/api-key-leak-detector.mjs` | `PreToolUse: Bash` (+ `Write\|Edit` for keys) | Python 3.9+ / Node 18+ | [safety-hooks.md](safety-hooks.md) |
 | recall | `bin/recall` | CLI | Python 3.9+ | [recall.md](recall.md) |
+| wt-snapshot | `bin/wt-snapshot` | CLI before worktree deletion | Bash + Git + tar | [wt-snapshot.md](wt-snapshot.md) |
 
 ---
 
 ## Design principles
 
-- **Fail-open everywhere** — every internal error path (missing file, missing interpreter, malformed input, timeout) exits `0` and stays silent. Exit `2` is reserved for a genuine detection. A safety layer that can take the agent down is worse than no safety layer.
+- **Hooks fail open; deletion capture fails closed** — hook internal errors stay silent and allow the tool call, with exit `2` reserved for a genuine hook detection. `wt-snapshot` instead returns nonzero when it cannot prove that deletable state was captured, including dirty submodules.
 - **Guarded wiring form** — every hook is wired as `sh -c 'f="<CONTEXT_KIT_DIR>/hooks/…"; if [ -f "$f" ]; then …; fi'`, so an unreplaced token or a moved checkout degrades to a no-op instead of blocking every tool call.
 - **`CK_` environment prefix** — all kit configuration and bypass variables share one namespace ([full table](reference.md)). Bypasses are explicit and visible: same-line tokens for Bash, process environment for everything else.
 - **One scratch contract** — every piece that persists anything writes into the same scratch directory layout with the same permissions and the same 7-day-TTL frontmatter. Cleanup is deliberately user-owned (one documented `find` one-liner).
@@ -95,6 +99,7 @@ bash tests/test_scratch_persist.sh
 bash tests/test_brief_validator.sh
 bash tests/test_safety_hooks.sh
 bash tests/test_recall.sh
+bash tests/test_wt_snapshot.sh
 ```
 
 Conventions: temp directories only, one `PASS`/`FAIL` line per case, and a root-skip guard so suites never touch real user data. Each per-piece doc ends with exact-wiring probes you can paste to verify a live installation.
