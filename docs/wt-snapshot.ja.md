@@ -8,6 +8,7 @@
 
 - worktree `HEAD` からの tracked 変更
 - worktree ファイル自体が `HEAD` と同じ場合も含む staged 変更
+- clean な populated submodule の staged gitlink 変更
 - nested path を含む untracked ファイル
 - 空の untracked ディレクトリ
 - `CK_WTSNAP_INCLUDE_IGNORED` で明示した gitignored パス群
@@ -70,7 +71,8 @@ wt-snapshot prune
 
 - dirty な tracked ファイルを含める
 - index と `HEAD` を比較し、staged-only 差分を別に保存する
-- assume-unchanged / skip-worktree path は porcelain を信用せず `HEAD` と直接比較する
+- assume-unchanged / skip-worktree path は porcelain を信用せず `HEAD` と直接比較する。通常の sparse checkout のように path が存在しない場合も、index entry が `HEAD` と一致すれば clean と扱う
+- staged gitlink 変更は保存済み index patch に含め、target index へ復元する
 - untracked ファイルを含める
 - 空の untracked ディレクトリを含める
 - ignored パスは `CK_WTSNAP_INCLUDE_IGNORED` に一致したものだけを含める
@@ -80,7 +82,7 @@ worktree、index、flag 付き tracked path、untracked set、設定済み ignor
 
 ### Submodule
 
-version 1 は submodule working tree を再帰 capture しません。clean な populated submodule は、その `.git` gitfile も含め payload から除外します。populated submodule の checkout が親 gitlink と異なる場合、または staged・modified・untracked・ignored・flag に隠れた content（recursive に検査する nested submodule を含む）がある場合は、exit `75` と `submodule dirt present — not captured, do not delete` で capture を停止します。未 capture の submodule 作業を削除可と誤認させないための意図的な拒否です。
+version 1 は submodule working tree を再帰 capture しません。clean な populated submodule は、その `.git` gitfile も含め payload から除外します。`.git` entry のない未初期化 submodule は populated と扱わず、clean no-op を妨げません。populated submodule の checkout が staged 済みの親 gitlink と異なる場合、または staged・modified・untracked・ignored・flag に隠れた content（recursive に検査する nested submodule を含む）がある場合は、exit `75` と `submodule dirt present — not captured, do not delete` で capture を停止します。新しく staged した gitlink と同じ commit にある clean な populated submodule は、gitlink 差分を index patch へ保存できるため安全に capture できます。未 capture の submodule 作業を削除可と誤認させないための意図的な拒否です。
 
 untracked の nested repository は別扱いです。working file は明示的に capture しますが、nested `.git` file / directory はすべて除外します。
 
@@ -113,13 +115,15 @@ CK_WTSNAP_SECRET_SCAN_CMD='my-scan-wrapper' wt-snapshot
 - 終了 `0`: snapshot を続行できる
 - 非ゼロ終了: fail-closed で中断し、ref は1つも書かず、その scan 終了コードをそのまま返す
 
-ツールは非再帰の明示的な archive path list を1つ凍結し、scan と pack の両方が同じ list を消費します。directory root は先に展開されるため、untracked nested repository 内の file が scan を通らず tar payload に入ることはありません。変更された index blob は binary content を含む raw bytes のまま scanner へ流し、staged-index patch も snapshot object を書く前に scan します。
+ツールは非再帰の明示的な archive path list を1つ凍結し、scan と pack の両方が同じ list を消費します。directory root は先に展開されるため、untracked nested repository 内の file が scan を通らず tar payload に入ることはありません。archive 作成時は permission bits を保持しつつ、AppleDouble / macOS metadata、extended attributes、ACLs、file flags を無効化します。作成後は payload を隔離 directory へ展開し、byte-exact な NUL-delimited member set を凍結済み path list と比較します。不一致は object や ref を書く前に exit `70` で中断します。
+
+scanner 設定時は、凍結した payload から candidate file bytes を scan した後、残存 archive metadata channel への fail-closed な備えとして raw tar stream 全体を1回 scan します。変更された index blob も binary content を含む raw bytes のまま scanner へ流し、staged-index patch も snapshot object を書く前に scan します。
 
 scan-hit と git failure を機械的に区別したい場合は、scanner wrapper 側で専用の非ゼロ終了コードを割り当てる想定です。
 
 ## Restore 契約
 
-`restore` は full-copy payload を fresh な一時 staging directory へ展開し、その後で空の target へ materialize します。file bytes、symlink、permission bits、capture 済みの空 directory を保持します。base tree を復元して worktree delta を適用する方式ではなく、payload 自体が capture 時の worktree 完全コピーです。保存済み staged-index patch だけは前述のとおり target の Git index に適用します。
+`restore` は full-copy payload を fresh な一時 staging directory へ展開し、その後で空の target へ materialize します。file bytes、symlink、permission bits、capture 済みの空 directory を保持します。extended attributes、ACLs、file flags、AppleDouble metadata は意図的に capture しません。base tree を復元して worktree delta を適用する方式ではなく、この metadata 境界内で payload 自体が capture 時の worktree 完全コピーです。保存済み staged-index patch だけは前述のとおり target の Git index に適用します。
 
 snapshot は信頼済みの local artifact として扱います。restore は展開前に absolute member name と `..` path component を拒否し、`--no-same-owner` を付けて target 外の一時領域へ展開します。ただし手作りの hostile ref は link などの archive 機能について platform `tar` の挙動に依存します。信頼できない repository の ref は restore しないでください。
 

@@ -8,6 +8,7 @@ Run it before a human removes a Git worktree. The command captures a full copy o
 
 - tracked modifications relative to the worktree `HEAD`
 - staged changes, even when the worktree file itself matches `HEAD`
+- staged gitlink changes for clean populated submodules
 - untracked files, including nested paths
 - empty untracked directories
 - a configured subset of gitignored paths through `CK_WTSNAP_INCLUDE_IGNORED`
@@ -70,7 +71,8 @@ wt-snapshot prune
 
 - Dirty tracked files are captured.
 - The index is compared with `HEAD`; staged-only divergence is captured separately.
-- Assume-unchanged and skip-worktree paths are compared directly with `HEAD` instead of trusting porcelain output.
+- Assume-unchanged and skip-worktree paths are compared directly with `HEAD` instead of trusting porcelain output. An absent flagged path is clean when its index entry still matches `HEAD`, as in a normal sparse checkout.
+- Staged gitlink changes are captured in the saved index patch and restored into the target index.
 - Untracked files are captured.
 - Empty untracked directories are captured.
 - Ignored paths are captured only when they match `CK_WTSNAP_INCLUDE_IGNORED`.
@@ -80,7 +82,7 @@ If the worktree, index, flagged tracked paths, untracked set, and configured ign
 
 ### Submodules
 
-Version 1 does not recursively snapshot submodule working trees. Clean populated submodules are omitted from the payload, including their `.git` gitfiles. If a populated submodule is checked out at a commit other than its parent gitlink or has staged, modified, untracked, ignored, or hidden flag-masked content (including recursively inspected nested submodules), capture stops with exit `75` and `submodule dirt present — not captured, do not delete`. This refusal is deliberate: the tool never turns uncaptured submodule work into a successful deletion blessing.
+Version 1 does not recursively snapshot submodule working trees. Clean populated submodules are omitted from the payload, including their `.git` gitfiles. Uninitialized submodules without a `.git` entry are not treated as populated and do not prevent a clean no-op. If a populated submodule is checked out at a commit other than its staged parent gitlink or has staged, modified, untracked, ignored, or hidden flag-masked content (including recursively inspected nested submodules), capture stops with exit `75` and `submodule dirt present — not captured, do not delete`. A clean populated submodule checked out at a newly staged gitlink is safe because the gitlink delta is stored in the index patch. This refusal is deliberate: the tool never turns uncaptured submodule work into a successful deletion blessing.
 
 Untracked nested repositories are different: their working files are captured explicitly, but every nested `.git` file or directory is excluded.
 
@@ -113,13 +115,15 @@ Behavior:
 - zero exit: snapshot may continue
 - nonzero exit: snapshot aborts fail-closed, no ref is written, and the scanner's exit status is returned
 
-The tool freezes one explicit, non-recursive archive path list and uses that same list for both scanning and packing. Directory roots are expanded first, so files inside an untracked nested repository cannot enter the tar payload without being scanned. Changed index blobs are streamed to the scanner in their raw form (including binary content), and the staged-index patch is also scanned, before any snapshot object is written.
+The tool freezes one explicit, non-recursive archive path list and uses that same list for both scanning and packing. Directory roots are expanded first, so files inside an untracked nested repository cannot enter the tar payload without being scanned. Archive creation disables AppleDouble/macOS metadata, extended attributes, ACLs, and file flags while preserving permission bits. After creation, the payload is extracted into an isolated directory and its byte-exact, NUL-delimited member set is compared with the frozen path list. A mismatch aborts with exit `70` before any object or ref is written.
+
+When a scanner is configured, candidate file bytes are scanned from the frozen payload, then the raw tar stream is scanned once as a fail-closed backstop for residual archive metadata channels. Changed index blobs are also streamed to the scanner in their raw form (including binary content), and the staged-index patch is scanned before any snapshot object is written.
 
 The intended shape is a wrapper command with a dedicated nonzero exit code for a hit, so callers can distinguish scan failures from git failures.
 
 ## Restore contract
 
-`restore` extracts the full-copy payload into a fresh staging directory, then materializes it into the empty target. File bytes, symlinks, permission bits, and captured empty directories are preserved. It does not reconstruct a base tree and then apply a worktree delta: the payload itself is the complete captured worktree copy. A saved staged-index patch is applied only to the target's Git index as described above.
+`restore` extracts the full-copy payload into a fresh staging directory, then materializes it into the empty target. File bytes, symlinks, permission bits, and captured empty directories are preserved. Extended attributes, ACLs, file flags, and AppleDouble metadata are intentionally not captured. The tool does not reconstruct a base tree and then apply a worktree delta: the payload itself is the complete captured worktree copy within that metadata boundary. A saved staged-index patch is applied only to the target's Git index as described above.
 
 Snapshots are trusted local artifacts. Restore rejects absolute archive member names and `..` path components before extraction, extracts with `--no-same-owner`, and stages extraction away from the target. A hand-made hostile ref can still exercise the behavior of the platform `tar` implementation for archive features such as links; do not restore refs from an untrusted repository.
 

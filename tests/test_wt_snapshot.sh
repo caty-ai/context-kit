@@ -141,6 +141,7 @@ populate_dirty_payload() {
 
   printf 'base line\nmodified line\n' > "${worktree}/tracked.txt"
   printf 'plain untracked\n' > "${worktree}/plain.txt"
+  printf 'leading dash\n' > "${worktree}/-leading.txt"
   printf 'space name\n' > "${worktree}/name with spaces.txt"
   printf 'unicode snow\n' > "${worktree}/snow-雪.txt"
   printf 'newline payload\n' > "${worktree}/${newline_name}"
@@ -225,6 +226,64 @@ snapshot_ref_for_prefix() {
   local repo="$1"
   local prefix="$2"
   snapshot_refs "${repo}" | grep -F "refs/worktree-snapshots/${prefix}/" || true
+}
+
+write_tar_interceptor() {
+  local wrapper_dir="$1"
+
+  mkdir -p "${wrapper_dir}"
+  cat > "${wrapper_dir}/tar" <<'EOF_TAR_WRAPPER'
+#!/usr/bin/env bash
+set -euo pipefail
+
+create=0
+archive=""
+previous=""
+for argument in "$@"; do
+  if [ "${previous}" = "-cpf" ]; then
+    archive="${argument}"
+  fi
+  [ "${argument}" != "-cpf" ] || create=1
+  previous="${argument}"
+done
+
+if [ "${create}" -eq 1 ] && [ "${CK_TEST_TAR_MODE:-}" = "metadata-leak" ]; then
+  filtered=()
+  for argument in "$@"; do
+    case "${argument}" in
+      --no-mac-metadata|--no-xattrs|--no-acls|--no-fflags) ;;
+      *) filtered+=("${argument}") ;;
+    esac
+  done
+  env -u COPYFILE_DISABLE "${CK_TEST_REAL_TAR}" "${filtered[@]}"
+  exit $?
+fi
+
+"${CK_TEST_REAL_TAR}" "$@"
+
+if [ "${create}" -eq 1 ] && [ "${CK_TEST_TAR_MODE:-}" = "extra-member" ]; then
+  printf 'not listed\n' > "${CK_TEST_TAR_INJECT_ROOT}/unlisted-member.txt"
+  COPYFILE_DISABLE=1 "${CK_TEST_REAL_TAR}" \
+    --no-mac-metadata --no-xattrs --no-acls --no-fflags \
+    -rf "${archive}" -C "${CK_TEST_TAR_INJECT_ROOT}" unlisted-member.txt
+fi
+EOF_TAR_WRAPPER
+  chmod +x "${wrapper_dir}/tar"
+}
+
+write_tree_path_set() {
+  local root="$1"
+  local output="$2"
+  local path=""
+  local relative=""
+  local raw="${output}.raw"
+
+  : > "${raw}"
+  while IFS= read -r -d '' path; do
+    relative="${path#"${root}"/}"
+    printf '%s\0' "${relative}" >> "${raw}"
+  done < <(find "${root}" -name .git -prune -o -mindepth 1 -print0)
+  LC_ALL=C sort -zu "${raw}" > "${output}"
 }
 
 case_dirty_capture_creates_parented_ref() {
@@ -517,6 +576,109 @@ case_secret_scan_bytes_match_restored_payload_under_mutation() {
   fi
 }
 
+case_xattr_metadata_leak_is_scanned_raw() {
+  local case_name="xattr-metadata-leak-is-scanned-raw"
+  local sandbox="${TMP_DIR}/${case_name}"
+  local fixture main_repo worktree wrapper_dir real_tar refs_before refs_after objects_before objects_after
+  local scan_cmd='grep -aFq FORBIDDEN-SECRET && exit 17 || exit 0'
+  fixture=$(make_fixture_repo "${sandbox}")
+  main_repo=$(printf '%s\n' "${fixture}" | sed -n '1p')
+  worktree=$(printf '%s\n' "${fixture}" | sed -n '2p')
+  wrapper_dir="${sandbox}/tar-wrapper"
+  real_tar=$(command -v tar)
+  write_tar_interceptor "${wrapper_dir}"
+  printf 'safe visible bytes\n' > "${worktree}/visible.txt"
+  xattr -w secret.probe FORBIDDEN-SECRET "${worktree}/visible.txt"
+  refs_before=$(snapshot_refs "${main_repo}")
+  objects_before=$(all_objects "${main_repo}")
+
+  run_in_dir "${worktree}" env \
+    PATH="${wrapper_dir}:${PATH}" \
+    CK_TEST_REAL_TAR="${real_tar}" \
+    CK_TEST_TAR_MODE=metadata-leak \
+    CK_WTSNAP_SECRET_SCAN_CMD="${scan_cmd}" \
+    "${WT_SNAPSHOT}"
+  refs_after=$(snapshot_refs "${main_repo}")
+  objects_after=$(all_objects "${main_repo}")
+  if [ "${RUN_STATUS}" = "17" ] &&
+     [ "${refs_before}" = "${refs_after}" ] &&
+     [ "${objects_before}" = "${objects_after}" ]; then
+    record_pass "${case_name}"
+  else
+    record_fail "${case_name}" "raw payload bytes containing xattr metadata must fail with the scanner status before any object write"
+  fi
+}
+
+case_xattr_metadata_is_excluded_without_scanner() {
+  local case_name="xattr-metadata-is-excluded-without-scanner"
+  local sandbox="${TMP_DIR}/${case_name}"
+  local fixture main_repo worktree ref payload expected actual extracted
+  fixture=$(make_fixture_repo "${sandbox}")
+  main_repo=$(printf '%s\n' "${fixture}" | sed -n '1p')
+  worktree=$(printf '%s\n' "${fixture}" | sed -n '2p')
+  payload="${sandbox}/payload.tar"
+  expected="${sandbox}/expected.paths"
+  actual="${sandbox}/actual.paths"
+  extracted="${sandbox}/extracted"
+  printf 'safe visible bytes\n' > "${worktree}/visible.txt"
+  xattr -w secret.probe FORBIDDEN-SECRET "${worktree}/visible.txt"
+
+  run_in_dir "${worktree}" "${WT_SNAPSHOT}"
+  ref=$(snapshot_ref_for_prefix "${main_repo}" "$(basename "${worktree}")" | tail -n 1)
+  if [ "${RUN_STATUS}" != "0" ] || [ -z "${ref}" ]; then
+    record_fail "${case_name}" "xattr-bearing files must snapshot successfully when metadata channels are disabled"
+    return
+  fi
+  git_setup -C "${main_repo}" show "${ref}:wt-snapshot.payload.tar" > "${payload}"
+  mkdir -p "${extracted}"
+  COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs --no-acls --no-fflags \
+    --no-same-owner -xpf "${payload}" -C "${extracted}"
+  write_tree_path_set "${worktree}" "${expected}"
+  write_tree_path_set "${extracted}" "${actual}"
+
+  if ! grep -aFq FORBIDDEN-SECRET "${payload}" &&
+     cmp -s "${expected}" "${actual}" &&
+     ! xattr -p secret.probe "${extracted}/visible.txt" >/dev/null 2>&1; then
+    record_pass "${case_name}"
+  else
+    record_fail "${case_name}" "payload members must equal the explicit path set and contain no xattr or AppleDouble metadata"
+  fi
+}
+
+case_payload_member_set_mismatch_is_fail_closed() {
+  local case_name="payload-member-set-mismatch-is-fail-closed"
+  local sandbox="${TMP_DIR}/${case_name}"
+  local fixture main_repo worktree wrapper_dir inject_root real_tar refs_before refs_after objects_before objects_after
+  fixture=$(make_fixture_repo "${sandbox}")
+  main_repo=$(printf '%s\n' "${fixture}" | sed -n '1p')
+  worktree=$(printf '%s\n' "${fixture}" | sed -n '2p')
+  wrapper_dir="${sandbox}/tar-wrapper"
+  inject_root="${sandbox}/inject-root"
+  real_tar=$(command -v tar)
+  mkdir -p "${inject_root}"
+  write_tar_interceptor "${wrapper_dir}"
+  printf 'dirty bytes\n' > "${worktree}/visible.txt"
+  refs_before=$(snapshot_refs "${main_repo}")
+  objects_before=$(all_objects "${main_repo}")
+
+  run_in_dir "${worktree}" env \
+    PATH="${wrapper_dir}:${PATH}" \
+    CK_TEST_REAL_TAR="${real_tar}" \
+    CK_TEST_TAR_MODE=extra-member \
+    CK_TEST_TAR_INJECT_ROOT="${inject_root}" \
+    "${WT_SNAPSHOT}"
+  refs_after=$(snapshot_refs "${main_repo}")
+  objects_after=$(all_objects "${main_repo}")
+  if [ "${RUN_STATUS}" = "70" ] &&
+     [ "${refs_before}" = "${refs_after}" ] &&
+     [ "${objects_before}" = "${objects_after}" ] &&
+     grep -Fq 'payload member set does not match archive list' "${RUN_STDERR}"; then
+    record_pass "${case_name}"
+  else
+    record_fail "${case_name}" "an unlisted tar member must abort verification before refs or objects are written"
+  fi
+}
+
 case_clean_detached_unreachable_head_creates_ref() {
   local case_name="clean-detached-unreachable-head-creates-ref"
   local sandbox="${TMP_DIR}/${case_name}"
@@ -691,6 +853,49 @@ case_staged_only_state_roundtrips_through_target_index() {
   fi
 }
 
+case_staged_gitlink_roundtrips_through_target_index() {
+  local case_name="staged-gitlink-roundtrips-through-target-index"
+  local sandbox="${TMP_DIR}/${case_name}"
+  local fixture main_repo worktree sub_source ref restore_dir staged_oid restored_oid
+  fixture=$(make_fixture_repo "${sandbox}")
+  main_repo=$(printf '%s\n' "${fixture}" | sed -n '1p')
+  worktree=$(printf '%s\n' "${fixture}" | sed -n '2p')
+  sub_source="${sandbox}/sub-source"
+  restore_dir="${sandbox}/restore"
+  mkdir -p "${sub_source}"
+  git_setup init -b main "${sub_source}" >/dev/null
+  printf 'sub base\n' > "${sub_source}/sub.txt"
+  git_setup -C "${sub_source}" add sub.txt
+  git_setup -C "${sub_source}" commit -m 'sub base' >/dev/null
+  git_setup -c protocol.file.allow=always -C "${worktree}" submodule add "${sub_source}" vendor/mod >/dev/null
+  git_setup -C "${worktree}" commit -am 'add submodule' >/dev/null
+
+  printf 'sub next\n' > "${worktree}/vendor/mod/sub.txt"
+  git_setup -C "${worktree}/vendor/mod" add sub.txt
+  git_setup -C "${worktree}/vendor/mod" commit -m 'sub next' >/dev/null
+  git_setup -C "${worktree}" add vendor/mod
+  staged_oid=$(git_setup -C "${worktree}" ls-files -s -- vendor/mod | awk '{print $2}')
+
+  run_in_dir "${worktree}" "${WT_SNAPSHOT}"
+  ref=$(snapshot_ref_for_prefix "${main_repo}" "$(basename "${worktree}")" | tail -n 1)
+  if [ "${RUN_STATUS}" != "0" ] || [ -z "${ref}" ] ||
+     grep -Eiq 'no-op|noop|nothing to snapshot|already reachable' "${RUN_STDOUT}"; then
+    record_fail "${case_name}" "a staged gitlink with a clean submodule worktree must create a snapshot"
+    return
+  fi
+
+  run_in_dir "${main_repo}" "${WT_SNAPSHOT}" restore "${ref}" "${restore_dir}"
+  restored_oid=$(git_setup -C "${restore_dir}" ls-files -s -- vendor/mod | awk '{print $2}')
+  if [ "${RUN_STATUS}" = "0" ] &&
+     [ "${restored_oid}" = "${staged_oid}" ] &&
+     [ -n "$(git_setup -C "${restore_dir}" diff --cached --name-only -- vendor/mod)" ] &&
+     [ ! -e "${restore_dir}/vendor/mod" ]; then
+    record_pass "${case_name}"
+  else
+    record_fail "${case_name}" "restore must reproduce the staged gitlink in the target index without packing submodule content"
+  fi
+}
+
 case_dirty_submodule_refuses_deletion_blessing() {
   local case_name="dirty-submodule-refuses-deletion-blessing"
   local sandbox="${TMP_DIR}/${case_name}"
@@ -754,6 +959,46 @@ case_dirty_submodule_refuses_deletion_blessing() {
   record_pass "${case_name}"
 }
 
+case_uninitialized_submodule_is_clean_noop() {
+  local case_name="uninitialized-submodule-is-clean-noop"
+  local sandbox="${TMP_DIR}/${case_name}"
+  local source parent_clone sub_source refs_before refs_after objects_before objects_after
+  source="${sandbox}/source"
+  parent_clone="${sandbox}/fresh-clone"
+  sub_source="${sandbox}/sub-source"
+  mkdir -p "${source}" "${sub_source}"
+  git_setup init -b main "${source}" >/dev/null
+  printf 'parent base\n' > "${source}/parent.txt"
+  git_setup -C "${source}" add parent.txt
+  git_setup -C "${source}" commit -m 'parent base' >/dev/null
+  git_setup init -b main "${sub_source}" >/dev/null
+  printf 'sub base\n' > "${sub_source}/sub.txt"
+  git_setup -C "${sub_source}" add sub.txt
+  git_setup -C "${sub_source}" commit -m 'sub base' >/dev/null
+  git_setup -c protocol.file.allow=always -C "${source}" submodule add "${sub_source}" vendor/mod >/dev/null
+  git_setup -C "${source}" commit -am 'add submodule' >/dev/null
+  git_setup clone --no-recurse-submodules "${source}" "${parent_clone}" >/dev/null
+  mkdir -p "${parent_clone}/vendor/mod"
+  [ ! -e "${parent_clone}/vendor/mod/.git" ] || {
+    record_fail "${case_name}" "fixture unexpectedly populated the submodule"
+    return
+  }
+  refs_before=$(snapshot_refs "${parent_clone}")
+  objects_before=$(all_objects "${parent_clone}")
+
+  run_in_dir "${parent_clone}" "${WT_SNAPSHOT}"
+  refs_after=$(snapshot_refs "${parent_clone}")
+  objects_after=$(all_objects "${parent_clone}")
+  if [ "${RUN_STATUS}" = "0" ] &&
+     [ "${refs_before}" = "${refs_after}" ] &&
+     [ "${objects_before}" = "${objects_after}" ] &&
+     grep -Eiq 'no-op|noop|nothing to snapshot|already reachable' "${RUN_STDOUT}"; then
+    record_pass "${case_name}"
+  else
+    record_fail "${case_name}" "a fresh clone with an uninitialized submodule must be a clean no-op, not exit 75"
+  fi
+}
+
 case_flagged_tracked_edits_are_captured() {
   local case_name="flagged-tracked-edits-are-captured"
   local flag sandbox fixture main_repo worktree ref restore_dir
@@ -775,6 +1020,33 @@ case_flagged_tracked_edits_are_captured() {
     run_in_dir "${main_repo}" "${WT_SNAPSHOT}" restore "${ref}" "${restore_dir}"
     if [ "${RUN_STATUS}" != "0" ] || [ "$(cat "${restore_dir}/tracked.txt")" != "${flag} bytes" ]; then
       record_fail "${case_name}" "${flag} worktree bytes did not restore"
+      return
+    fi
+  done
+  record_pass "${case_name}"
+}
+
+case_absent_flagged_paths_are_clean_noop() {
+  local case_name="absent-flagged-paths-are-clean-noop"
+  local flag sandbox fixture main_repo worktree refs_before refs_after objects_before objects_after
+  for flag in assume-unchanged skip-worktree; do
+    sandbox="${TMP_DIR}/${case_name}-${flag}"
+    fixture=$(make_fixture_repo "${sandbox}")
+    main_repo=$(printf '%s\n' "${fixture}" | sed -n '1p')
+    worktree=$(printf '%s\n' "${fixture}" | sed -n '2p')
+    git_setup -C "${worktree}" update-index --"${flag}" tracked.txt
+    rm "${worktree}/tracked.txt"
+    refs_before=$(snapshot_refs "${main_repo}")
+    objects_before=$(all_objects "${main_repo}")
+
+    run_in_dir "${worktree}" "${WT_SNAPSHOT}"
+    refs_after=$(snapshot_refs "${main_repo}")
+    objects_after=$(all_objects "${main_repo}")
+    if [ "${RUN_STATUS}" != "0" ] ||
+       [ "${refs_before}" != "${refs_after}" ] ||
+       [ "${objects_before}" != "${objects_after}" ] ||
+       ! grep -Eiq 'no-op|noop|nothing to snapshot|already reachable' "${RUN_STDOUT}"; then
+      record_fail "${case_name}" "an absent ${flag} path whose index entry matches HEAD must not create a noise snapshot"
       return
     fi
   done
@@ -961,12 +1233,18 @@ case_restore_rejects_non_empty_target_with_exit_70
 case_repo_local_fsmonitor_is_not_executed
 case_secret_scan_abort_is_fail_closed
 case_secret_scan_bytes_match_restored_payload_under_mutation
+case_xattr_metadata_leak_is_scanned_raw
+case_xattr_metadata_is_excluded_without_scanner
+case_payload_member_set_mismatch_is_fail_closed
 case_clean_detached_unreachable_head_creates_ref
 case_clean_worktree_is_explicit_noop
 case_snapshot_leaves_user_state_untouched
 case_staged_only_state_roundtrips_through_target_index
+case_staged_gitlink_roundtrips_through_target_index
 case_dirty_submodule_refuses_deletion_blessing
+case_uninitialized_submodule_is_clean_noop
 case_flagged_tracked_edits_are_captured
+case_absent_flagged_paths_are_clean_noop
 case_nested_repo_secret_is_scanned_before_pack
 case_staged_binary_secret_is_scanned_raw
 case_empty_directories_alone_trigger_and_restore

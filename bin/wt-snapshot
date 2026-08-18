@@ -475,7 +475,7 @@ is_tracked_dirty() {
 
 is_index_dirty() {
   local rc=0
-  if git_maybe diff --cached --quiet --no-ext-diff --ignore-submodules=all HEAD --; then
+  if git_maybe diff --cached --quiet --no-ext-diff HEAD --; then
     return 1
   else
     rc=$?
@@ -483,21 +483,21 @@ is_index_dirty() {
   if [ "${rc}" -eq 1 ]; then
     return 0
   fi
-  git_fail "git diff --cached --quiet --ignore-submodules=all HEAD -- failed"
+  git_fail "git diff --cached --quiet HEAD -- failed"
 }
 
 flagged_path_differs_from_head() {
   local rel_path="$1"
   local abs_path="${WORKTREE_ROOT}/${rel_path}"
   local entry=""
+  local index_entry=""
   local head_mode=""
   local head_oid=""
+  local index_mode=""
+  local index_oid=""
   local worktree_oid=""
   local link_target=""
 
-  if ! candidate_exists "${rel_path}"; then
-    return 0
-  fi
   if ! entry=$(git_maybe ls-tree HEAD -- "${rel_path}") || [ -z "${entry}" ]; then
     return 0
   fi
@@ -505,6 +505,18 @@ flagged_path_differs_from_head() {
   entry="${entry#* }"
   head_oid="${entry#* }"
   head_oid="${head_oid%%$'\t'*}"
+
+  if ! candidate_exists "${rel_path}"; then
+    if ! index_entry=$(git_maybe ls-files -s -- "${rel_path}") || [ -z "${index_entry}" ]; then
+      return 0
+    fi
+    index_entry="${index_entry%%$'\t'*}"
+    index_mode="${index_entry%% *}"
+    index_entry="${index_entry#* }"
+    index_oid="${index_entry%% *}"
+    [ "${index_mode}" != "${head_mode}" ] || [ "${index_oid}" != "${head_oid}" ]
+    return
+  fi
 
   case "${head_mode}" in
     120000)
@@ -545,17 +557,28 @@ repo_flagged_path_differs_from_head() {
   local rel_path="$2"
   local abs_path="${repo_root}/${rel_path}"
   local entry=""
+  local index_entry=""
   local head_mode=""
   local head_oid=""
+  local index_mode=""
+  local index_oid=""
   local worktree_oid=""
   local link_target=""
 
-  if [ ! -e "${abs_path}" ] && [ ! -L "${abs_path}" ]; then return 0; fi
   if ! entry=$(git_at_maybe "${repo_root}" ls-tree HEAD -- "${rel_path}") || [ -z "${entry}" ]; then return 0; fi
   head_mode="${entry%% *}"
   entry="${entry#* }"
   head_oid="${entry#* }"
   head_oid="${head_oid%%$'\t'*}"
+  if [ ! -e "${abs_path}" ] && [ ! -L "${abs_path}" ]; then
+    if ! index_entry=$(git_at_maybe "${repo_root}" ls-files -s -- "${rel_path}") || [ -z "${index_entry}" ]; then return 0; fi
+    index_entry="${index_entry%%$'\t'*}"
+    index_mode="${index_entry%% *}"
+    index_entry="${index_entry#* }"
+    index_oid="${index_entry%% *}"
+    [ "${index_mode}" != "${head_mode}" ] || [ "${index_oid}" != "${head_oid}" ]
+    return
+  fi
   case "${head_mode}" in
     120000)
       [ -L "${abs_path}" ] || return 0
@@ -611,7 +634,7 @@ submodule_tree_has_uncaptured_state() {
     child_oid="${record#* }"
     child_oid="${child_oid%% *}"
     rel_path="${record#*$'\t'}"
-    [ -e "${repo_root}/${rel_path}" ] || [ -L "${repo_root}/${rel_path}" ] || continue
+    [ -e "${repo_root}/${rel_path}/.git" ] || continue
     if submodule_tree_has_uncaptured_state "${repo_root}/${rel_path}" "${child_oid}" "${display_path}/${rel_path}"; then return 0; fi
   done < "${links_file}"
   return 1
@@ -623,7 +646,7 @@ refuse_dirty_submodules() {
   local index_oid=""
 
   while IFS= read -r -d '' rel_path; do
-    [ -e "${WORKTREE_ROOT}/${rel_path}" ] || [ -L "${WORKTREE_ROOT}/${rel_path}" ] || continue
+    [ -e "${WORKTREE_ROOT}/${rel_path}/.git" ] || continue
     index_entry=$(git_maybe ls-files -s -- "${rel_path}")
     index_oid=$(printf '%s\n' "${index_entry}" | awk 'NR == 1 { print $2 }')
     if submodule_tree_has_uncaptured_state "${WORKTREE_ROOT}/${rel_path}" "${index_oid}" "${rel_path}"; then
@@ -687,12 +710,110 @@ scan_payload_archive() {
   local scan_root="${TMP_DIR}/scan-root"
   local rel_path=""
   mkdir -p "${scan_root}"
-  if ! tar --no-same-owner -xpf "${payload_file}" -C "${scan_root}"; then
+  if ! COPYFILE_DISABLE=1 tar \
+    --no-mac-metadata --no-xattrs --no-acls --no-fflags \
+    --no-same-owner -xpf "${payload_file}" -C "${scan_root}"; then
     die_runtime "failed to extract snapshot payload for scanning"
   fi
   while IFS= read -r -d '' rel_path; do
     scan_candidate_path "${scan_root}" "${rel_path}"
   done < "${ARCHIVE_LIST}"
+}
+
+scan_raw_payload_archive() {
+  local payload_file="$1"
+  local rc=0
+
+  [ -n "${SCAN_COMMAND}" ] || return 0
+  if bash -c "${SCAN_COMMAND}" < "${payload_file}"; then
+    return 0
+  else
+    rc=$?
+  fi
+  printf '%s: secret scan failed for raw payload archive\n' "${PROGRAM}" >&2
+  exit "${rc}"
+}
+
+write_bsdtar_escaped_member() {
+  local value="$1"
+  local character=""
+  local ordinal=0
+  local octal=""
+  local index=0
+  local LC_ALL=C
+
+  while [ "${index}" -lt "${#value}" ]; do
+    character="${value:${index}:1}"
+    case "${character}" in
+      $'\a') printf '\\a' ;;
+      $'\b') printf '\\b' ;;
+      $'\f') printf '\\f' ;;
+      $'\n') printf '\\n' ;;
+      $'\r') printf '\\r' ;;
+      $'\t') printf '\\t' ;;
+      $'\v') printf '\\v' ;;
+      \\) printf '\\\\' ;;
+      *)
+        printf -v ordinal '%d' "'${character}"
+        if [ "${ordinal}" -ge 32 ] && [ "${ordinal}" -le 126 ]; then
+          printf '%s' "${character}"
+        else
+          printf -v octal '%03o' "${ordinal}"
+          printf '\\%s' "${octal}"
+        fi
+        ;;
+    esac
+    index=$((index + 1))
+  done
+  printf '\n'
+}
+
+verify_payload_members() {
+  local payload_file="$1"
+  local verify_root="${TMP_DIR}/verify-root"
+  local listed_raw="${TMP_DIR}/verify.listed.raw"
+  local listed="${TMP_DIR}/verify.listed"
+  local expected_listed_raw="${TMP_DIR}/verify.expected-listed.raw"
+  local expected_listed="${TMP_DIR}/verify.expected-listed"
+  local expected="${TMP_DIR}/verify.expected"
+  local actual_raw="${TMP_DIR}/verify.actual.raw"
+  local actual="${TMP_DIR}/verify.actual"
+  local abs_path=""
+  local rel_path=""
+  local listed_path=""
+
+  if ! LC_ALL=C tar -tf "${payload_file}" > "${listed_raw}"; then
+    die_runtime "failed to inspect snapshot payload archive"
+  fi
+  mkdir -p "${verify_root}"
+  if ! COPYFILE_DISABLE=1 tar \
+    --no-mac-metadata --no-xattrs --no-acls --no-fflags \
+    --no-same-owner -xpf "${payload_file}" -C "${verify_root}"; then
+    die_runtime "failed to extract snapshot payload for verification"
+  fi
+
+  : > "${expected_listed_raw}"
+  while IFS= read -r -d '' rel_path; do
+    listed_path="${rel_path}"
+    if [ -d "${verify_root}/${rel_path}" ] && [ ! -L "${verify_root}/${rel_path}" ]; then
+      listed_path="${listed_path}/"
+    fi
+    write_bsdtar_escaped_member "${listed_path}" >> "${expected_listed_raw}"
+  done < "${ARCHIVE_LIST}"
+  LC_ALL=C sort -u "${listed_raw}" > "${listed}"
+  LC_ALL=C sort -u "${expected_listed_raw}" > "${expected_listed}"
+
+  LC_ALL=C sort -zu "${ARCHIVE_LIST}" > "${expected}"
+  : > "${actual_raw}"
+  while IFS= read -r -d '' abs_path; do
+    rel_path="${abs_path#"${verify_root}"/}"
+    printf '%s\0' "${rel_path}" >> "${actual_raw}"
+  done < <(find "${verify_root}" -mindepth 1 -print0)
+  LC_ALL=C sort -zu "${actual_raw}" > "${actual}"
+
+  if ! cmp -s "${expected_listed}" "${listed}" || ! cmp -s "${expected}" "${actual}"; then
+    die_runtime "payload member set does not match archive list"
+  fi
 }
 
 scan_index_patch() {
@@ -728,7 +849,9 @@ scan_staged_index_paths() {
 create_payload_archive() {
   local payload_file="$1"
 
-  if ! tar -cpf "${payload_file}" --no-recursion -C "${WORKTREE_ROOT}" --null -T "${ARCHIVE_LIST}"; then
+  if ! COPYFILE_DISABLE=1 tar \
+    --no-mac-metadata --no-xattrs --no-acls --no-fflags \
+    -cpf "${payload_file}" --no-recursion -C "${WORKTREE_ROOT}" --null -T "${ARCHIVE_LIST}"; then
     die_runtime "failed to create snapshot payload archive"
   fi
 }
@@ -939,8 +1062,8 @@ run_snapshot() {
   refuse_dirty_submodules
   INDEX_PATCH_FILE="${TMP_DIR}/${INDEX_PATCH_PATH}"
   STAGED_PATH_LIST="${TMP_DIR}/staged-paths.list"
-  git_to_file "${INDEX_PATCH_FILE}" diff --cached --binary --full-index --no-ext-diff --ignore-submodules=all HEAD --
-  git_to_file "${STAGED_PATH_LIST}" diff --cached --name-only -z --diff-filter=ACMRTUXB --no-ext-diff --ignore-submodules=all HEAD --
+  git_to_file "${INDEX_PATCH_FILE}" diff --cached --binary --full-index --no-ext-diff HEAD --
+  git_to_file "${STAGED_PATH_LIST}" diff --cached --name-only -z --diff-filter=ACMRTUXB --no-ext-diff HEAD --
 
   if ! is_tracked_dirty &&
      ! is_index_dirty &&
@@ -955,6 +1078,8 @@ run_snapshot() {
 
   create_payload_archive "${payload_file}"
   scan_payload_archive "${payload_file}"
+  scan_raw_payload_archive "${payload_file}"
+  verify_payload_members "${payload_file}"
   scan_staged_index_paths
   scan_index_patch
 

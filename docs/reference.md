@@ -140,5 +140,5 @@ Scratch content can include secrets, tokens, stack traces, or raw customer data 
 | `wt-snapshot` | `0` | Snapshot written, `restore` completed, `prune` listed zero or more refs, or capture detected a clean no-op and wrote nothing |
 | `wt-snapshot` | `64` | Usage error |
 | `wt-snapshot` | scanner exit status | `CK_WTSNAP_SECRET_SCAN_CMD` returned nonzero. The snapshot aborts fail-closed, no ref is written, and the scanner's status is preserved |
-| `wt-snapshot` | `70` | Git or repository operation failed while building, storing, or restoring the snapshot |
-| `wt-snapshot` | `75` | A populated submodule differs from its gitlink or contains staged, modified, untracked, ignored, or flag-hidden state. Submodule content is not captured in v1, so deletion must stop |
+| `wt-snapshot` | `70` | Git, archive verification, or repository operation failed while building, storing, or restoring the snapshot |
+| `wt-snapshot` | `75` | A populated submodule differs from its staged parent gitlink or contains staged, modified, untracked, ignored, or flag-hidden state. Submodule content is not captured in v1, so deletion must stop |

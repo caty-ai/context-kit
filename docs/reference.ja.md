@@ -140,5 +140,5 @@ find "${scratch_dir}" \( -type f -name 'scratch-*.md' -o -type f -name '.scratch
 | `wt-snapshot` | `0` | スナップショット作成成功、`restore` 成功、`prune` が0件以上を一覧表示、または capture が clean no-op を検知して何も書かなかった場合 |
 | `wt-snapshot` | `64` | 使い方エラー |
 | `wt-snapshot` | スキャナの終了ステータス | `CK_WTSNAP_SECRET_SCAN_CMD` が非ゼロを返した。スナップショットは fail-closed で中断し、ref は1つも書かれず、スキャナの終了ステータスをそのまま返す |
-| `wt-snapshot` | `70` | スナップショットの構築・保存・復元中に git またはリポジトリ操作が失敗した |
-| `wt-snapshot` | `75` | populated submodule が gitlink と異なるか、staged・modified・untracked・ignored・flag-hidden state を含む。v1 は submodule content を capture しないため、削除を停止する必要がある |
+| `wt-snapshot` | `70` | スナップショットの構築・保存・復元中に git、archive 検証、またはリポジトリ操作が失敗した |
+| `wt-snapshot` | `75` | populated submodule が staged 済みの親 gitlink と異なるか、staged・modified・untracked・ignored・flag-hidden state を含む。v1 は submodule content を capture しないため、削除を停止する必要がある |
