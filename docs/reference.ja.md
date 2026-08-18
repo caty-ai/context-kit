@@ -8,11 +8,12 @@
 
 | パス | 内容 |
 | --- | --- |
-| `bin/` | スタンドアロン CLI：[`lg`](lg.md)、[`recall`](recall.md) |
+| `bin/` | スタンドアロン CLI：[`lg`](lg.md)、[`recall`](recall.md)、[`wt-snapshot`](wt-snapshot.ja.md) |
 | `hooks/` | フックスクリプト：`lg-enforcer.py`、`scratch-persist.{sh,py}`、`validate-subagent-brief.{sh,py}`、`rm-enforcer.py`、`private-repo-enforcer.mjs`、`api-key-leak-detector.mjs` |
 | `examples/settings.json` | すべてのフックの完全な配線例（`<CONTEXT_KIT_DIR>` プレースホルダー付き） |
-| `docs/` | 本ドキュメント |
-| `tests/` | 一時ディレクトリのみで動作する6つのセルフチェックスイート |
+| `docs/` | 本ドキュメント（[`wt-snapshot`](wt-snapshot.ja.md) を含む） |
+| `tests/` | 一時ディレクトリのみで動作する7つのセルフチェックスイート |
+| `refs/worktree-snapshots/<worktree-name>/<UTC-timestamp>` | `wt-snapshot` が main リポジトリへ書き込む耐久スナップショット ref |
 
 ---
 
@@ -91,6 +92,17 @@
 
 ---
 
+### wt-snapshot（[詳細](wt-snapshot.ja.md)）
+
+| 変数 | 用途 | デフォルト |
+| --- | --- | --- |
+| `CK_WTSNAP_INCLUDE_IGNORED` | スナップショットに含める gitignored パスの glob 一覧。コロン区切りまたはカンマ区切り。未設定なら ignored パスは一切含めない | 未設定 |
+| `CK_WTSNAP_SECRET_SCAN_CMD` | スナップショット作成前に、候補ファイルごとの内容を stdin で受け取る任意コマンド。非ゼロ終了なら、ref を1つも書かず fail-closed で中断する | 未設定 |
+| `CK_WTSNAP_IDENT` | すべての git 呼び出しに使う任意の identity。ユーザーの git config を読まず、author / committer 環境変数へ展開して使う | 組み込みのツール identity |
+| `CK_WTSNAP_TTL_DAYS` | `wt-snapshot prune` が期限切れ ref を一覧表示する際のしきい値日数。`prune` は一覧表示のみで、削除はしない | `30` |
+
+---
+
 ## スクラッチ契約
 
 永続化を行うすべての要素は、同じルールに従います。
@@ -125,3 +137,7 @@ find "${scratch_dir}" \( -type f -name 'scratch-*.md' -o -type f -name '.scratch
 | `PostToolUse`（`scratch-persist`） | `0` | 常に。成功時、stdout には `hookSpecificOutput.additionalContext` を含む JSON オブジェクトが1つだけ出力される |
 | `recall` | `0` | 試行したレイヤーのうち少なくとも1つが `status=ok` で完了した場合（ヒット数0の検索も含む） |
 | `recall` | 非ゼロ | 試行したすべてのレイヤーがエラーになった場合、選択されたレイヤーを1つも試行できなかった場合、またはコマンド全体が失敗した場合（案内は stderr に出力され、stdout は機械可読なまま維持される） |
+| `wt-snapshot` | `0` | スナップショット作成成功、`restore` 成功、`prune` が0件以上を一覧表示、または capture が clean no-op を検知して何も書かなかった場合 |
+| `wt-snapshot` | `64` | 使い方エラー |
+| `wt-snapshot` | スキャナの終了ステータス | `CK_WTSNAP_SECRET_SCAN_CMD` が非ゼロを返した。スナップショットは fail-closed で中断し、ref は1つも書かれず、スキャナの終了ステータスをそのまま返す |
+| `wt-snapshot` | `70` | スナップショットの構築・保存・復元中に git またはリポジトリ操作が失敗した |

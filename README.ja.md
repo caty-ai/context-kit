@@ -13,9 +13,9 @@
 
 AI エージェントに本物の仕事を任せると、小さな事故がついてきます。巨大なログが作業記憶（会話に持てるコンテキスト）を押し流し、<br>
 危ない削除コマンドまであと1歩、API キーがファイルに書き込まれる寸前——。<br>
-context-kit は、その事故をツール実行のその場所で機械的に止める、5点セットの装備です。
+context-kit は、その事故をツール実行のその場所で機械的に止める、6点セットの装備です。
 
-**エージェントの作業机に、5つの装備を。**
+**エージェントの作業机に、6つの装備を。**
 
 🔧 [エンジニア向けドキュメント](docs/engineering.ja.md) ｜ 📘 [詳細仕様](docs/reference.ja.md)
 
@@ -44,7 +44,7 @@ AI エージェントに自分のマシンで仕事をさせている人なら�
 - エージェントが危険な削除コマンドを打つ寸前だった、リポジトリをうっかり公開で作る寸前だった
 - API キーがコマンドラインやコミットするファイルに入り込む寸前だった
 
-context-kit は、この4つの事故をちょうど防ぐ、エージェント1体分の装備セットです。「気をつけてね」とお願いするのではなく、仕組みで止めます。
+context-kit は、この4つの事故をちょうど防ぐ、エージェント1体分の6点装備セットです。「気をつけてね」とお願いするのではなく、仕組みで止めます。
 
 ---
 
@@ -52,7 +52,7 @@ context-kit は、この4つの事故をちょうど防ぐ、エージェント1
 
 ## できること
 
-5つの装備は、エージェントの仕事の要所——ツールが動く直前と、出力が出た直後——に立ちます。
+6つの装備のうち5つは、エージェントの仕事の要所——ツールが動く直前と、出力が出た直後——に立ちます。残る1つは、消す前の worktree を退避させます。
 
 ```mermaid
 flowchart LR
@@ -85,6 +85,10 @@ flowchart LR
 
   最大3層の記憶——ホスト型メモリサービス・ローカル検索インデックス・ただのファイル——を同時に検索して、過去の作業を出どころ（ファイルパスやメモリ ID）つきで呼び戻します。
 
+- 📸 **wt-snapshot**
+
+  人が worktree を削除する前に、その HEAD と tracked / untracked / 設定済み ignored 状態を main リポジトリ内の耐久 ref に退避します。あとから fresh なディレクトリに、その状態をそのまま復元できます。
+
 どの装備も単独で動きます。1つだけ入れる、残りは無視する、あとから足す、すべてありです。
 
 導入の前に、動く環境を確認しておきましょう。
@@ -103,7 +107,7 @@ flowchart LR
 | Python | 3.9 以上（ほとんどの装備で必要） |
 | Node.js | 18 以上（安全ガード3本のうち2本だけで必要） |
 
-hook の仕組みを持たないエージェントで使う場合は、`lg` と `recall` の2つだけが対象です——この2つはどこでも動くただのコマンドラインツールです。残り3つは Claude Code の hook です。
+hook の仕組みを持たないエージェントで使う場合でも、`lg`・`recall`・`wt-snapshot` の3つは対象です——この3つはどこでも動くただのコマンドラインツールです。残り3つは Claude Code の hook です。
 
 環境が合っていれば、セットアップは数分で終わります。
 
@@ -143,7 +147,7 @@ sed "s|<CONTEXT_KIT_DIR>|$PWD|g" examples/settings.json
 
 表示された出力から、使いたい `hooks` のエントリを `~/.claude/settings.json`（またはプロジェクトの `.claude/settings.json`）に写します。既存の設定は消さずにマージしてください。そのあと Claude Code を再起動するか `/hooks` を実行すると配線が反映されます。
 
-3. 任意: 2つの CLI（`lg`・`recall`）を使うなら、キットの `bin` ディレクトリを `PATH` に足します。
+3. 任意: 3つの CLI（`lg`・`recall`・`wt-snapshot`）を使うなら、キットの `bin` ディレクトリを `PATH` に足します。
 
 ```sh
 export PATH="$PWD/bin:$PATH"
@@ -196,7 +200,8 @@ for t in tests/*.sh; do bash "$t"; done
 | --- | --- |
 | アーキテクチャ・設計原則・エンジニア向けクイックスタート | [エンジニアリングガイド](docs/engineering.ja.md)（[🇺🇸 English](docs/engineering.md)） |
 | 全環境変数・ファイル契約・終了コードの規則 | [詳細仕様](docs/reference.ja.md)（[🇺🇸 English](docs/reference.md)） |
-| 装備を1つずつ、導入と検証の手順つきで | [lg](docs/lg.md) ・ [scratch-persist](docs/scratch-persist.md) ・ [brief-validator](docs/brief-validator.md) ・ [safety-hooks](docs/safety-hooks.md) ・ [recall](docs/recall.md) |
+| worktree を消す前の退避、復元、ignored 退避、prune 一覧 | [wt-snapshot](docs/wt-snapshot.ja.md)（[🇺🇸 English](docs/wt-snapshot.md)） |
+| 装備を1つずつ、導入と検証の手順つきで | [lg](docs/lg.md) ・ [scratch-persist](docs/scratch-persist.md) ・ [brief-validator](docs/brief-validator.md) ・ [safety-hooks](docs/safety-hooks.md) ・ [recall](docs/recall.md) ・ [wt-snapshot](docs/wt-snapshot.ja.md) |
 
 <!-- family:generated:family-footer:start -->
 
@@ -209,7 +214,7 @@ for t in tests/*.sh; do bash "$t"; done
 | 地図 | [Family OS](https://github.com/caty-ai/family-os) | AIファミリー全体の地図 — モジュール・状態・つながり | 公開・MIT |
 | 掟 | [Family Dev Handbook](https://github.com/caty-ai/family-dev-handbook) | 開発の交通ルール — Issue・PR・worktree・受け渡し・並行開発 | 公開・MIT |
 | 縦軸・基盤 | [Caty Agent Harness](https://github.com/caty-ai/caty-agent-harness) | AIエージェントのタスク基盤 — 試行・リトライ・チェックポイント・完了判定 | 公開・MIT |
-| 縦軸 | **context-kit** | エージェント1体分のコンテキスト衛生キット — 大出力の退避・委譲ブリーフ検査・安全フック・記憶検索 | 公開・MIT |
+| 縦軸 | **context-kit** | エージェント1体分の6点コンテキスト衛生キット — 大出力の退避・委譲ブリーフ検査・安全フック・記憶検索・worktree スナップショット | 公開・MIT |
 | 縦軸 | [Persona Engine](https://github.com/caty-ai/persona-engine) | エージェントに人格を与える — 人格レイヤーと感情のグラデーション | 公開・MIT |
 | 縦軸 | **Persona Growth Loop** | 人格そのものを育てる — 最小・冪等な提案づくり | 公開準備中 |
 | 縦軸 | [X Collector](https://github.com/caty-ai/x-collector) | Xやウェブの素材を1日1回のダイジェストに — 人にもエージェントにも | 公開・MIT |
@@ -232,4 +237,3 @@ for t in tests/*.sh; do bash "$t"; done
 **素の hooks + 小さな CLI** ｜ **fail-open 設計** ｜ **MIT**
 
 </div>
-

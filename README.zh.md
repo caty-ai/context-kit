@@ -13,9 +13,9 @@
 
 把真正的工作交给 AI agent 之后，各种小事故就会跟着来: 一条命令打印出成千上万行日志，把它工作记忆里的旧内容全部挤掉，<br>
 一次危险的删除操作只差一步就要执行，一个 API key 差点被写进文件里。<br>
-context-kit 是一套五件装备，专门在工具运行的那个瞬间，用机制把这些事故挡下来。
+context-kit 是一套六件装备，专门在工具运行的那个瞬间，用机制把这些事故挡下来。
 
-**为你的 agent 工作台配上 5 件装备。**
+**为你的 agent 工作台配上 6 件装备。**
 
 🔧 [工程指南](docs/engineering.md) ｜ 📘 [参考文档](docs/reference.md)
 
@@ -44,7 +44,7 @@ context-kit 是一套五件装备，专门在工具运行的那个瞬间，用�
 - agent 差点执行了一次破坏性的删除，或者差点把仓库建成了公开的
 - 一个 API key 差点被写进命令行或者提交进了文件里
 
-context-kit 是为单个 agent 准备的五件装备，专门防住这四类事故——靠的是机制本身，而不是提醒 agent "小心点"。
+context-kit 是为单个 agent 准备的六件装备，专门防住这四类事故——靠的是机制本身，而不是提醒 agent "小心点"。
 
 ---
 
@@ -52,7 +52,7 @@ context-kit 是为单个 agent 准备的五件装备，专门防住这四类事�
 
 ## 它能做什么
 
-这五件装备守在 agent 工作的关键节点上: 工具执行前的那一刻，以及工具产生输出之后的那一刻。
+六件装备里有五件守在 agent 工作的关键节点上: 工具执行前的那一刻，以及工具产生输出之后的那一刻。第六件则负责在你删除临时 worktree 之前先把它封存起来。
 
 ```mermaid
 flowchart LR
@@ -85,6 +85,10 @@ flowchart LR
 
   同时搜索最多三层记忆（托管的记忆服务、本地搜索索引、纯文本文件），并连同来源（文件路径或记忆 ID）一起返回过去的工作记录。
 
+- 📸 **wt-snapshot**
+
+  在人手动删除 worktree 之前，把它的 HEAD、tracked 改动、untracked 文件，以及你指定要纳入的 ignored 内容一起封存到主仓库里的耐久 ref。之后可以把这份状态原样恢复到一个全新的目录。
+
 每件装备都能独立工作。装一件、其余先不管、以后再慢慢加，都可以。
 
 在安装之前，先确认一下运行环境。
@@ -103,7 +107,7 @@ flowchart LR
 | Python | 3.9 及以上，大多数装备都需要 |
 | Node.js | 18 及以上，三道安全防线中有两道需要 |
 
-如果你的 agent 工具没有 hook 机制，那只有 `lg` 和 `recall` 适用——它们是纯粹的命令行工具，在哪里都能跑。其余三件是 Claude Code 的 hook。
+如果你的 agent 工具没有 hook 机制，`lg`、`recall` 和 `wt-snapshot` 也照样适用——它们是纯粹的命令行工具，在哪里都能跑。其余三件是 Claude Code 的 hook。
 
 如果你的机器符合上面的条件，配置只需要几分钟。
 
@@ -143,7 +147,7 @@ sed "s|<CONTEXT_KIT_DIR>|$PWD|g" examples/settings.json
 
 从输出里挑出你想要的 `hooks` 条目，复制进 `~/.claude/settings.json`（或某个项目自己的 `.claude/settings.json`）。要合并进去，不要覆盖掉不相关的设置。然后重启 Claude Code，或者运行 `/hooks`，让配置生效。
 
-3. 可选: 把这套装备的 `bin` 目录加进 `PATH`，就能直接使用两个 CLI 工具（`lg`、`recall`）。
+3. 可选: 把这套装备的 `bin` 目录加进 `PATH`，就能直接使用三个 CLI 工具（`lg`、`recall`、`wt-snapshot`）。
 
 ```sh
 export PATH="$PWD/bin:$PATH"
@@ -196,7 +200,8 @@ for t in tests/*.sh; do bash "$t"; done
 | --- | --- |
 | 架构、设计原则，以及给工程师看的快速上手 | [工程指南](docs/engineering.md)（[🇯🇵 日本語](docs/engineering.ja.md)） |
 | 每个环境变量、文件约定、退出码规则 | [参考文档](docs/reference.md)（[🇯🇵 日本語](docs/reference.ja.md)） |
-| 逐件了解每个装备，含安装和验证步骤 | [lg](docs/lg.md) ・ [scratch-persist](docs/scratch-persist.md) ・ [brief-validator](docs/brief-validator.md) ・ [safety-hooks](docs/safety-hooks.md) ・ [recall](docs/recall.md) |
+| 删除前封存 worktree、恢复内容、纳入 ignored 路径，以及只列出可清理快照 | [wt-snapshot](docs/wt-snapshot.md)（[🇯🇵 日本語](docs/wt-snapshot.ja.md)） |
+| 逐件了解每个装备，含安装和验证步骤 | [lg](docs/lg.md) ・ [scratch-persist](docs/scratch-persist.md) ・ [brief-validator](docs/brief-validator.md) ・ [safety-hooks](docs/safety-hooks.md) ・ [recall](docs/recall.md) ・ [wt-snapshot](docs/wt-snapshot.md) |
 
 <!-- family:generated:family-footer:start -->
 
@@ -209,7 +214,7 @@ for t in tests/*.sh; do bash "$t"; done
 | 地图 | [Family OS](https://github.com/caty-ai/family-os) | 整个家族的地图 — 模块、状态与结构 | 已公开・MIT |
 | 规则 | [Family Dev Handbook](https://github.com/caty-ai/family-dev-handbook) | 开发的交通规则 — Issue、PR、worktree、交接与并行开发 | 已公开・MIT |
 | 纵轴・基座 | [Caty Agent Harness](https://github.com/caty-ai/caty-agent-harness) | AI 智能体的任务基座 — 重试、检查点与完成判定 | 已公开・MIT |
-| 纵轴 | **context-kit** | 面向单个智能体的上下文卫生工具组 — 限制大输出、委托简报校验、安全防护、记忆检索 | 已公开・MIT |
+| 纵轴 | **context-kit** | 面向单个智能体的六件上下文卫生工具组 — 限制大输出、委托简报校验、安全防护、记忆检索、worktree 快照 | 已公开・MIT |
 | 纵轴 | [Persona Engine](https://github.com/caty-ai/persona-engine) | 为智能体赋予人格 — 分层人格与情感渐变 | 已公开・MIT |
 | 纵轴 | **Persona Growth Loop** | 让人格本身成长 — 以最小且幂等的提案 | 准备公开中 |
 | 纵轴 | [X Collector](https://github.com/caty-ai/x-collector) | 把 X 与网络素材汇成每日一份摘要 — 给人也给智能体 | 已公开・MIT |
@@ -232,4 +237,3 @@ for t in tests/*.sh; do bash "$t"; done
 **朴素的 hooks + 小巧的 CLI** ｜ **默认 fail-open** ｜ **MIT**
 
 </div>
-

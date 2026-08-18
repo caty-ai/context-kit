@@ -8,11 +8,12 @@ The exact contracts: every environment variable, the scratch-file rules, exit-co
 
 | Path | Contents |
 | --- | --- |
-| `bin/` | Standalone CLIs: [`lg`](lg.md), [`recall`](recall.md) |
+| `bin/` | Standalone CLIs: [`lg`](lg.md), [`recall`](recall.md), [`wt-snapshot`](wt-snapshot.md) |
 | `hooks/` | Hook scripts: `lg-enforcer.py`, `scratch-persist.{sh,py}`, `validate-subagent-brief.{sh,py}`, `rm-enforcer.py`, `private-repo-enforcer.mjs`, `api-key-leak-detector.mjs` |
 | `examples/settings.json` | Complete wiring example for all hooks, with `<CONTEXT_KIT_DIR>` placeholders |
-| `docs/` | This documentation |
-| `tests/` | Six self-check suites, temp-directory-only |
+| `docs/` | This documentation, including [`wt-snapshot`](wt-snapshot.md) |
+| `tests/` | Seven self-check suites, temp-directory-only |
+| `refs/worktree-snapshots/<worktree-name>/<UTC-timestamp>` | Durable snapshot refs written by `wt-snapshot` into the main repository |
 
 ---
 
@@ -91,6 +92,17 @@ Export hook-related variables from the shell, launcher, or app wrapper that star
 
 ---
 
+### wt-snapshot ([details](wt-snapshot.md))
+
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `CK_WTSNAP_INCLUDE_IGNORED` | Colon- or comma-separated glob list of gitignored paths to include in the snapshot. Unset means ignored paths are excluded entirely | unset |
+| `CK_WTSNAP_SECRET_SCAN_CMD` | Optional command that receives each candidate file on stdin before snapshot creation. Any nonzero exit aborts the snapshot fail-closed before any ref is written | unset |
+| `CK_WTSNAP_IDENT` | Optional git identity for snapshot git invocations. The tool expands it into author and committer env vars instead of reading user git config | built-in tool identity |
+| `CK_WTSNAP_TTL_DAYS` | Age threshold used by `wt-snapshot prune` when listing expired snapshot refs. The command only lists; it never deletes | `30` |
+
+---
+
 ## Scratch contract
 
 Every persisting piece follows the same rules:
@@ -125,3 +137,7 @@ Scratch content can include secrets, tokens, stack traces, or raw customer data 
 | `PostToolUse` (`scratch-persist`) | `0` | Always; on success stdout carries exactly one JSON object with `hookSpecificOutput.additionalContext` |
 | `recall` | `0` | At least one attempted layer completed `status=ok` (a zero-hit search counts) |
 | `recall` | nonzero | Every attempted layer errored, no selected layer could be attempted, or a whole-command failure (guidance goes to stderr; stdout stays machine-readable) |
+| `wt-snapshot` | `0` | Snapshot written, `restore` completed, `prune` listed zero or more refs, or capture detected a clean no-op and wrote nothing |
+| `wt-snapshot` | `64` | Usage error |
+| `wt-snapshot` | scanner exit status | `CK_WTSNAP_SECRET_SCAN_CMD` returned nonzero. The snapshot aborts fail-closed, no ref is written, and the scanner's status is preserved |
+| `wt-snapshot` | `70` | Git or repository operation failed while building, storing, or restoring the snapshot |
