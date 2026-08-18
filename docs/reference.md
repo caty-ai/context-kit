@@ -97,7 +97,7 @@ Export hook-related variables from the shell, launcher, or app wrapper that star
 | Variable | Purpose | Default |
 | --- | --- | --- |
 | `CK_WTSNAP_INCLUDE_IGNORED` | Colon- or comma-separated glob list of gitignored paths to include in the snapshot. Unset means ignored paths are excluded entirely | unset |
-| `CK_WTSNAP_SECRET_SCAN_CMD` | Optional command that receives each candidate file on stdin before snapshot creation. Any nonzero exit aborts the snapshot fail-closed before any ref is written | unset |
+| `CK_WTSNAP_SECRET_SCAN_CMD` | Optional command that receives each explicitly packed file (plus any staged-index patch) on stdin before snapshot creation. Any nonzero exit aborts fail-closed before snapshot refs or objects are written | unset |
 | `CK_WTSNAP_IDENT` | Optional git identity for snapshot git invocations. The tool expands it into author and committer env vars instead of reading user git config | built-in tool identity |
 | `CK_WTSNAP_TTL_DAYS` | Age threshold used by `wt-snapshot prune` when listing expired snapshot refs. The command only lists; it never deletes | `30` |
 
@@ -141,3 +141,4 @@ Scratch content can include secrets, tokens, stack traces, or raw customer data 
 | `wt-snapshot` | `64` | Usage error |
 | `wt-snapshot` | scanner exit status | `CK_WTSNAP_SECRET_SCAN_CMD` returned nonzero. The snapshot aborts fail-closed, no ref is written, and the scanner's status is preserved |
 | `wt-snapshot` | `70` | Git or repository operation failed while building, storing, or restoring the snapshot |
+| `wt-snapshot` | `75` | A populated submodule differs from its gitlink or contains staged, modified, untracked, ignored, or flag-hidden state. Submodule content is not captured in v1, so deletion must stop |

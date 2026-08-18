@@ -97,7 +97,7 @@
 | 変数 | 用途 | デフォルト |
 | --- | --- | --- |
 | `CK_WTSNAP_INCLUDE_IGNORED` | スナップショットに含める gitignored パスの glob 一覧。コロン区切りまたはカンマ区切り。未設定なら ignored パスは一切含めない | 未設定 |
-| `CK_WTSNAP_SECRET_SCAN_CMD` | スナップショット作成前に、候補ファイルごとの内容を stdin で受け取る任意コマンド。非ゼロ終了なら、ref を1つも書かず fail-closed で中断する | 未設定 |
+| `CK_WTSNAP_SECRET_SCAN_CMD` | スナップショット作成前に、明示的に pack される各 file（および staged-index patch）の内容を stdin で受け取る任意コマンド。非ゼロ終了なら snapshot ref / object を書く前に fail-closed で中断する | 未設定 |
 | `CK_WTSNAP_IDENT` | すべての git 呼び出しに使う任意の identity。ユーザーの git config を読まず、author / committer 環境変数へ展開して使う | 組み込みのツール identity |
 | `CK_WTSNAP_TTL_DAYS` | `wt-snapshot prune` が期限切れ ref を一覧表示する際のしきい値日数。`prune` は一覧表示のみで、削除はしない | `30` |
 
@@ -141,3 +141,4 @@ find "${scratch_dir}" \( -type f -name 'scratch-*.md' -o -type f -name '.scratch
 | `wt-snapshot` | `64` | 使い方エラー |
 | `wt-snapshot` | スキャナの終了ステータス | `CK_WTSNAP_SECRET_SCAN_CMD` が非ゼロを返した。スナップショットは fail-closed で中断し、ref は1つも書かれず、スキャナの終了ステータスをそのまま返す |
 | `wt-snapshot` | `70` | スナップショットの構築・保存・復元中に git またはリポジトリ操作が失敗した |
+| `wt-snapshot` | `75` | populated submodule が gitlink と異なるか、staged・modified・untracked・ignored・flag-hidden state を含む。v1 は submodule content を capture しないため、削除を停止する必要がある |
