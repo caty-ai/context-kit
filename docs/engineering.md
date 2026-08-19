@@ -30,7 +30,7 @@ Merge the printed `hooks` entries you want into `~/.claude/settings.json` or a p
 make test
 ```
 
-All suites are temp-directory-only and print one `PASS`/`FAIL` line per case (108 cases across 7 suites).
+All 7 test suites are temp-directory-only and print one `PASS`/`FAIL` line per case.
 
 ---
 

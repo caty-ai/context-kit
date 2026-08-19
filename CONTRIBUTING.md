@@ -16,8 +16,8 @@ Running the full test suite with `make test` requires:
 
 - **Bash 3.2 or newer.** The batch runner and shell suites stay compatible with the macOS system Bash.
 - **Python 3.9 or newer.** The suites exercise the Python hooks and use Python helpers of their own.
-- **GNU Make 3.81 or newer.** `make test` is the supported full-suite entry point; `make lint` uses the same baseline.
-- **Git.** The safety-hook and `wt-snapshot` suites create and inspect temporary repositories.
+- **GNU Make.** GNU Make is required for `make test` and `make lint`; the stock macOS Make (3.81) is sufficient.
+- **Git.** The `wt-snapshot` suite creates and inspects temporary repositories.
 
 Two tools are optional:
 

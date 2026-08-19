@@ -30,7 +30,7 @@ sed "s|<CONTEXT_KIT_DIR>|$PWD|g" examples/settings.json
 make test
 ```
 
-すべてのテストスイートは一時ディレクトリのみを使用し、ケースごとに `PASS`/`FAIL` を1行出力します（7つのスイートで合計108ケース）。
+7つのテストスイートはすべて一時ディレクトリのみを使用し、ケースごとに `PASS`/`FAIL` を1行出力します。
 
 ---
 

@@ -30,6 +30,7 @@ context-kit は、その事故をツール実行のその場所で機械的に�
 - [使いはじめる](#install)
 - [安心して使える理由](#safety)
 - [もっと詳しく](#docs)
+- [Project status](#status)
 - [ライセンス](#license)
 
 ---
@@ -205,6 +206,8 @@ make test
 | 装備を1つずつ、導入と検証の手順つきで | [lg](docs/lg.md) ・ [scratch-persist](docs/scratch-persist.md) ・ [brief-validator](docs/brief-validator.md) ・ [safety-hooks](docs/safety-hooks.md) ・ [recall](docs/recall.md) ・ [wt-snapshot](docs/wt-snapshot.ja.md) |
 
 ---
+
+<a id="status"></a>
 
 ## Project status
 

@@ -30,6 +30,7 @@ context-kit is a six-piece equipment set that stops these accidents mechanically
 - [Get started](#install)
 - [Why it's safe to adopt](#safety)
 - [Learn more](#docs)
+- [Project status](#status)
 - [License](#license)
 
 ---
@@ -205,6 +206,8 @@ The details live in reader-specific docs, one level deeper.
 | One piece at a time, with install and verify steps | [lg](docs/lg.md) ・ [scratch-persist](docs/scratch-persist.md) ・ [brief-validator](docs/brief-validator.md) ・ [safety-hooks](docs/safety-hooks.md) ・ [recall](docs/recall.md) ・ [wt-snapshot](docs/wt-snapshot.md) |
 
 ---
+
+<a id="status"></a>
 
 ## Project status
 

@@ -30,6 +30,7 @@ context-kit 是一套六件装备，专门在工具运行的那个瞬间，用�
 - [开始使用](#install)
 - [为什么用起来放心](#safety)
 - [了解更多](#docs)
+- [Project status](#status)
 - [许可协议](#license)
 
 ---
@@ -206,12 +207,14 @@ make test
 
 ---
 
+<a id="status"></a>
+
 ## Project status
 
 - **CI:** 尚未配置。共享的 test/lint caller 计划在 #20（B6）中加入；在此之前，`make test` 是本地准入门槛。
 - **已验证环境:** macOS（已在本地验证，`make test` 的 7/7 个套件全部通过）｜ Linux 尚未验证。
 - **成熟度:** v0.2.0 发布了第六件装备 `wt-snapshot`。接口仍可能发生变化。
-- **已知限制:** safety guard 按设计采用 fail-open；guard 损坏时绝不会阻塞 agent。本项目以 macOS 为优先平台；文档已注明 `wt-snapshot` 的 Linux/GNU tar 路径尚未验证。
+- **已知限制:** safety guard 按设计采用 fail-open；不会因 guard 损坏而阻塞 agent。本项目以 macOS 为优先平台；文档已注明 `wt-snapshot` 的 Linux/GNU tar 路径尚未验证。
 
 <!-- family:generated:family-footer:start -->
 

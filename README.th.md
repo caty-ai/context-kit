@@ -30,6 +30,7 @@ context-kit คือชุดอุปกรณ์ 6 ชิ้นที่ห�
 - [เริ่มต้นใช้งาน](#install)
 - [ทำไมถึงปลอดภัยที่จะใช้](#safety)
 - [อ่านเพิ่มเติม](#docs)
+- [Project status](#status)
 - [สัญญาอนุญาต](#license)
 
 ---
@@ -205,6 +206,8 @@ make test
 | ทีละชิ้น พร้อมขั้นตอนติดตั้งและตรวจสอบ | [lg](docs/lg.md) ・ [scratch-persist](docs/scratch-persist.md) ・ [brief-validator](docs/brief-validator.md) ・ [safety-hooks](docs/safety-hooks.md) ・ [recall](docs/recall.md) ・ [wt-snapshot](docs/wt-snapshot.md) |
 
 ---
+
+<a id="status"></a>
 
 ## Project status
 
