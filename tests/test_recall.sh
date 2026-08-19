@@ -7,6 +7,7 @@ RECALL="${ROOT}/bin/recall"
 TMP_DIR=$(mktemp -d)
 PASS_COUNT=0
 FAIL_COUNT=0
+SKIP_COUNT=0
 RUN_STDOUT=""
 RUN_STDERR=""
 RUN_STATUS=0
@@ -15,7 +16,7 @@ cleanup() {
   chmod -R u+rwx "${TMP_DIR}" 2>/dev/null || true
   rm -rf "${TMP_DIR}"
 }
-trap cleanup EXIT
+trap finish EXIT
 
 run_capture() {
   RUN_STDOUT="${TMP_DIR}/stdout.${RANDOM}"
@@ -52,11 +53,23 @@ record_fail() {
   printf 'FAIL %s: %s\n' "$1" "$2"
 }
 
+record_skip() {
+  SKIP_COUNT=$((SKIP_COUNT + 1))
+  printf 'SKIP %s: %s\n' "$1" "$2"
+}
+
 finish() {
-  printf '%d passed, %d failed\n' "${PASS_COUNT}" "${FAIL_COUNT}"
+  rc=$?
+  trap - EXIT
+  printf '%d passed, %d failed, %d skipped\n' "${PASS_COUNT}" "${FAIL_COUNT}" "${SKIP_COUNT}"
+  cleanup
   if [ "${FAIL_COUNT}" -ne 0 ]; then
     exit 1
   fi
+  if [ "${rc}" -ne 0 ]; then
+    exit "${rc}"
+  fi
+  exit 0
 }
 
 scratch_path_from_human() {
@@ -432,7 +445,11 @@ case_rg_preferred_and_grep_fallback() {
   local python_path
   mkdir -p "${root}" "${preferred_bin}" "${fallback_bin}"
   printf 'tool-probe\n' > "${root}/tool.md"
-  python_path=$(command -v python3)
+  python_path=$(command -v python3 || true)
+  if [ -z "${python_path}" ]; then
+    record_skip "${case_name}" "python3 not installed"
+    return 0
+  fi
   ln -s "${python_path}" "${preferred_bin}/python3"
   ln -s "${python_path}" "${fallback_bin}/python3"
 
@@ -487,9 +504,21 @@ case_colon_path_survives_rg_and_grep_fallback() {
   local grep_path
   mkdir -p "${root}" "${forced_rg_bin}" "${forced_grep_bin}"
   printf 'colon-path-probe\n' > "${root}/foo:12:bar.md"
-  python_path=$(command -v python3)
-  rg_path=$(command -v rg)
-  grep_path=$(command -v grep)
+  python_path=$(command -v python3 || true)
+  if [ -z "${python_path}" ]; then
+    record_skip "${case_name}" "python3 not installed"
+    return 0
+  fi
+  rg_path=$(command -v rg || true)
+  if [ -z "${rg_path}" ]; then
+    record_skip "${case_name}" "rg not installed"
+    return 0
+  fi
+  grep_path=$(command -v grep || true)
+  if [ -z "${grep_path}" ]; then
+    record_skip "${case_name}" "grep not installed"
+    return 0
+  fi
   ln -s "${python_path}" "${forced_rg_bin}/python3"
   ln -s "${rg_path}" "${forced_rg_bin}/rg"
   ln -s "${python_path}" "${forced_grep_bin}/python3"
@@ -843,4 +872,3 @@ case_default_scratch_and_home_unset
 case_whole_failure_is_clear_english
 case_python39_stdlib_executable_and_clean
 case_no_personal_residue
-finish
