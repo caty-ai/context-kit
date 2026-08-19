@@ -10,12 +10,26 @@ Thanks for considering a contribution. This kit is small on purpose; contributio
 - **`CK_` prefix** for any new environment variable, with an explicit default documented in [docs/reference.md](docs/reference.md).
 - **Tests are temp-directory-only** and print one `PASS`/`FAIL` line per case. A behavior change needs a case that fails before and passes after.
 
+## Prerequisites
+
+Running the full test suite with `make test` requires:
+
+- **Bash 3.2 or newer.** The batch runner and shell suites stay compatible with the macOS system Bash.
+- **Python 3.9 or newer.** The suites exercise the Python hooks and use Python helpers of their own.
+- **GNU Make.** GNU Make is required for `make test` and `make lint`; the stock macOS Make (3.81) is sufficient.
+- **Git.** The `wt-snapshot` suite creates and inspects temporary repositories.
+
+Two tools are optional:
+
+- **Node.js 18 or newer.** Without it, the `.mjs` private-repository and API-key guards cannot run, and their case groups are reported as `SKIP`; the rest of the suite still runs.
+- **ripgrep (`rg`).** `recall` normally falls back to POSIX `grep` when `rg` is absent. The `rg`-specific colon-path case is reported as `SKIP`, not a failure.
+
 ## Before you open a PR
 
 1. Run the full suite from the repository root:
 
 ```sh
-for t in tests/*.sh; do bash "$t"; done
+make test
 ```
 
 2. Update the affected doc under `docs/` — behavior and documentation ship together.

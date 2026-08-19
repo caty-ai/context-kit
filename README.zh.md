@@ -30,6 +30,7 @@ context-kit 是一套六件装备，专门在工具运行的那个瞬间，用�
 - [开始使用](#install)
 - [为什么用起来放心](#safety)
 - [了解更多](#docs)
+- [Project status](#status)
 - [许可协议](#license)
 
 ---
@@ -157,7 +158,7 @@ export PATH="$PWD/bin:$PATH"
 4. 验证一下。这套装备的自检只会在临时目录里运行。
 
 ```sh
-for t in tests/*.sh; do bash "$t"; done
+make test
 ```
 
 每个测试用例都会打印一行 `PASS`——输出里不应该出现任何 `FAIL`（其中两个套件末尾还会附一行零失败的汇总）。
@@ -203,6 +204,17 @@ for t in tests/*.sh; do bash "$t"; done
 | 每个环境变量、文件约定、退出码规则 | [参考文档](docs/reference.md)（[🇯🇵 日本語](docs/reference.ja.md)） |
 | 删除前封存 worktree、恢复内容、纳入 ignored 路径，以及只列出可清理快照 | [wt-snapshot](docs/wt-snapshot.md)（[🇯🇵 日本語](docs/wt-snapshot.ja.md)） |
 | 逐件了解每个装备，含安装和验证步骤 | [lg](docs/lg.md) ・ [scratch-persist](docs/scratch-persist.md) ・ [brief-validator](docs/brief-validator.md) ・ [safety-hooks](docs/safety-hooks.md) ・ [recall](docs/recall.md) ・ [wt-snapshot](docs/wt-snapshot.md) |
+
+---
+
+<a id="status"></a>
+
+## Project status
+
+- **CI:** 尚未配置。共享的 test/lint caller 计划在 #20（B6）中加入；在此之前，`make test` 是本地准入门槛。
+- **已验证环境:** macOS（已在本地验证，`make test` 的 7/7 个套件全部通过）｜ Linux 尚未验证。
+- **成熟度:** v0.2.0 发布了第六件装备 `wt-snapshot`。接口仍可能发生变化。
+- **已知限制:** safety guard 按设计采用 fail-open；不会因 guard 损坏而阻塞 agent。本项目以 macOS 为优先平台；文档已注明 `wt-snapshot` 的 Linux/GNU tar 路径尚未验证。
 
 <!-- family:generated:family-footer:start -->
 

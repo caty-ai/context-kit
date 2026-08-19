@@ -30,6 +30,7 @@ context-kit คือชุดอุปกรณ์ 6 ชิ้นที่ห�
 - [เริ่มต้นใช้งาน](#install)
 - [ทำไมถึงปลอดภัยที่จะใช้](#safety)
 - [อ่านเพิ่มเติม](#docs)
+- [Project status](#status)
 - [สัญญาอนุญาต](#license)
 
 ---
@@ -157,7 +158,7 @@ export PATH="$PWD/bin:$PATH"
 4. ตรวจสอบการทำงาน การเช็คตัวเองของคิทจะรันกับไดเรกทอรีชั่วคราวเท่านั้น
 
 ```sh
-for t in tests/*.sh; do bash "$t"; done
+make test
 ```
 
 ทุกกรณีทดสอบจะพิมพ์บรรทัด `PASS` ออกมา — ในผลลัพธ์ทั้งหมดต้องไม่มี `FAIL` เลย (มี 2 ชุดทดสอบที่จบด้วยบรรทัดสรุปว่าไม่มีความล้มเหลวเพิ่มเติมด้วย)
@@ -203,6 +204,17 @@ for t in tests/*.sh; do bash "$t"; done
 | ตัวแปรสภาพแวดล้อมทุกตัว ข้อตกลงไฟล์ และกฎ exit code ทั้งหมด | [เอกสารอ้างอิง](docs/reference.md)（[🇯🇵 日本語](docs/reference.ja.md)） |
 | เก็บ snapshot ของ worktree ก่อนลบ, กู้คืน, รวม ignored paths และดูรายการ snapshot ที่หมดอายุ | [wt-snapshot](docs/wt-snapshot.md)（[🇯🇵 日本語](docs/wt-snapshot.ja.md)） |
 | ทีละชิ้น พร้อมขั้นตอนติดตั้งและตรวจสอบ | [lg](docs/lg.md) ・ [scratch-persist](docs/scratch-persist.md) ・ [brief-validator](docs/brief-validator.md) ・ [safety-hooks](docs/safety-hooks.md) ・ [recall](docs/recall.md) ・ [wt-snapshot](docs/wt-snapshot.md) |
+
+---
+
+<a id="status"></a>
+
+## Project status
+
+- **CI:** ยังไม่มี โดยมีแผนเพิ่ม test/lint caller ที่ใช้ร่วมกันใน #20 (B6) ระหว่างนี้ `make test` คือด่านตรวจสอบในเครื่อง
+- **สภาพแวดล้อมที่ตรวจสอบแล้ว:** macOS (ทดสอบในเครื่องแล้ว โดย `make test` ผ่าน 7/7 ชุด) | Linux ยังไม่ได้ตรวจสอบ
+- **ระดับความพร้อม:** v0.2.0 เปิดตัวอุปกรณ์ชิ้นที่หกคือ `wt-snapshot` อินเทอร์เฟซยังอาจเปลี่ยนแปลงได้
+- **ข้อจำกัดที่ทราบ:** safety guard ถูกออกแบบให้ fail-open การ์ดที่เสียจะไม่บล็อกเอเจนต์ โปรเจกต์นี้ให้ความสำคัญกับ macOS ก่อน และเอกสารระบุไว้ว่าเส้นทาง Linux/GNU tar ของ `wt-snapshot` ยังไม่ได้รับการตรวจสอบ
 
 <!-- family:generated:family-footer:start -->
 
