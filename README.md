@@ -157,7 +157,7 @@ export PATH="$PWD/bin:$PATH"
 4. Verify. The kit's self-checks run only against temporary directories.
 
 ```sh
-for t in tests/*.sh; do bash "$t"; done
+make test
 ```
 
 Every test case prints a `PASS` line — there should be no `FAIL` anywhere in the output (two suites also end with a zero-failure summary line).
@@ -203,6 +203,15 @@ The details live in reader-specific docs, one level deeper.
 | Every environment variable, file contract, and exit-code rule | [Reference](docs/reference.md)（[🇯🇵 日本語](docs/reference.ja.md)） |
 | Worktree snapshots before deletion, restore, ignored-path capture, and prune listing | [wt-snapshot](docs/wt-snapshot.md)（[🇯🇵 日本語](docs/wt-snapshot.ja.md)） |
 | One piece at a time, with install and verify steps | [lg](docs/lg.md) ・ [scratch-persist](docs/scratch-persist.md) ・ [brief-validator](docs/brief-validator.md) ・ [safety-hooks](docs/safety-hooks.md) ・ [recall](docs/recall.md) ・ [wt-snapshot](docs/wt-snapshot.md) |
+
+---
+
+## Project status
+
+- **CI:** Not yet. The shared test-and-lint caller is planned for #20 (B6); until then, `make test` is the local gate.
+- **Verified environments:** macOS (tested locally; `make test`: 7/7 suites passed) | Linux unverified.
+- **Maturity:** v0.2.0 shipped the sixth piece, `wt-snapshot`. Interfaces may still move.
+- **Known limits:** Safety guards are fail-open by design: a broken guard never blocks the agent. The project is macOS-first; `wt-snapshot` documents its unverified Linux/GNU tar path.
 
 <!-- family:generated:family-footer:start -->
 

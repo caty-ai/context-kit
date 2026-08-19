@@ -157,7 +157,7 @@ export PATH="$PWD/bin:$PATH"
 4. 動作確認。キットの自己チェックは一時ディレクトリだけを使います。
 
 ```sh
-for t in tests/*.sh; do bash "$t"; done
+make test
 ```
 
 全テストケースが `PASS` 行を出せば成功です。出力のどこにも `FAIL` がないことを確認してください（2つのスイートは末尾に失敗ゼロのサマリ行も出ます）。
@@ -203,6 +203,15 @@ for t in tests/*.sh; do bash "$t"; done
 | 全環境変数・ファイル契約・終了コードの規則 | [詳細仕様](docs/reference.ja.md)（[🇺🇸 English](docs/reference.md)） |
 | worktree を消す前の退避、復元、ignored 退避、prune 一覧 | [wt-snapshot](docs/wt-snapshot.ja.md)（[🇺🇸 English](docs/wt-snapshot.md)） |
 | 装備を1つずつ、導入と検証の手順つきで | [lg](docs/lg.md) ・ [scratch-persist](docs/scratch-persist.md) ・ [brief-validator](docs/brief-validator.md) ・ [safety-hooks](docs/safety-hooks.md) ・ [recall](docs/recall.md) ・ [wt-snapshot](docs/wt-snapshot.ja.md) |
+
+---
+
+## Project status
+
+- **CI:** まだありません。共有 test/lint caller は #20（B6）で導入予定です。それまでは `make test` がローカルのゲートです。
+- **検証済み環境:** macOS（ローカルで検証済み、`make test` は 7/7 suites 成功）｜ Linux は未検証。
+- **成熟度:** v0.2.0 で6番目の装備 `wt-snapshot` をリリースしました。インターフェースは今後も変わる可能性があります。
+- **既知の制限:** safety guard は意図的に fail-open です。guard が壊れてもエージェントをブロックしません。macOS-first であり、`wt-snapshot` の Linux/GNU tar 経路が未検証であることをドキュメントに明記しています。
 
 <!-- family:generated:family-footer:start -->
 

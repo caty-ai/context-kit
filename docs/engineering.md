@@ -27,7 +27,7 @@ sed "s|<CONTEXT_KIT_DIR>|$PWD|g" examples/settings.json
 Merge the printed `hooks` entries you want into `~/.claude/settings.json` or a project's `.claude/settings.json`, restart Claude Code (or run `/hooks`), and optionally put `bin/` on your `PATH` for the three CLIs. Then verify:
 
 ```sh
-for t in tests/*.sh; do bash "$t"; done
+make test
 ```
 
 All suites are temp-directory-only and print one `PASS`/`FAIL` line per case (108 cases across 7 suites).

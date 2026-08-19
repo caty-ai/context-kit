@@ -27,7 +27,7 @@ sed "s|<CONTEXT_KIT_DIR>|$PWD|g" examples/settings.json
 出力された `hooks` エントリのうち必要なものを `~/.claude/settings.json` またはプロジェクトの `.claude/settings.json` にマージし、Claude Code を再起動する（または `/hooks` を実行する）、必要に応じて3つの CLI のために `bin/` を `PATH` に追加してください。その後、以下で確認します。
 
 ```sh
-for t in tests/*.sh; do bash "$t"; done
+make test
 ```
 
 すべてのテストスイートは一時ディレクトリのみを使用し、ケースごとに `PASS`/`FAIL` を1行出力します（7つのスイートで合計108ケース）。
