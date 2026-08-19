@@ -19,11 +19,11 @@ PASS_COUNT=0
 FAIL_COUNT=0
 FAILED_NAMES=""
 
-# Discover suites: tests/test_*.sh, sorted, deterministic. Uses a plain
-# glob (bash 3.2 safe; no mapfile / associative arrays).
+# Discover suites: tests/test_*.sh, in glob expansion order. Uses a plain glob
+# (bash 3.2 safe; no mapfile / associative arrays).
 SUITES=()
 for suite in "${TESTS_DIR}"/test_*.sh; do
-  if [ -e "${suite}" ]; then
+  if [ -e "${suite}" ] || [ -L "${suite}" ]; then
     SUITES+=("${suite}")
   fi
 done
