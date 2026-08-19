@@ -8,8 +8,9 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![python](https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white)
-![node](https://img.shields.io/badge/node-18%2B_optional-339933?logo=nodedotjs&logoColor=white)
+![node](https://img.shields.io/badge/node-18%2B_optional-lightgrey?logo=nodedotjs&logoColor=white)
 ![platform](https://img.shields.io/badge/platform-macOS_tested_%7C_Linux_unverified-lightgrey)
+![CI](https://img.shields.io/badge/CI-not_yet-lightgrey)
 
 มอบงานจริงให้ AI เอเจนต์ทำ แล้วอุบัติเหตุเล็กๆ ก็จะตามมา ล็อกไฟล์มหึมาไฟล์เดียวท่วมความจำการทำงานของมัน<br>
 คำสั่งลบไฟล์อันตรายอยู่ห่างแค่ปุ่มเดียว กุญแจ API เกือบหลุดเข้าไปในไฟล์<br>

@@ -8,8 +8,9 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![python](https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white)
-![node](https://img.shields.io/badge/node-18%2B_optional-339933?logo=nodedotjs&logoColor=white)
+![node](https://img.shields.io/badge/node-18%2B_optional-lightgrey?logo=nodedotjs&logoColor=white)
 ![platform](https://img.shields.io/badge/platform-macOS_tested_%7C_Linux_unverified-lightgrey)
+![CI](https://img.shields.io/badge/CI-not_yet-lightgrey)
 
 把真正的工作交给 AI agent 之后，各种小事故就会跟着来: 一条命令打印出成千上万行日志，把它工作记忆里的旧内容全部挤掉，<br>
 一次危险的删除操作只差一步就要执行，一个 API key 差点被写进文件里。<br>
