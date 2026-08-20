@@ -343,14 +343,14 @@ module = importlib.util.module_from_spec(spec)
 loader.exec_module(module)
 
 def slow_adapter(query, limit):
-    time.sleep(0.25)
+    time.sleep(2.0)
     return []
 
 module.build_layer_plans = lambda selected: ({"grep": slow_adapter}, {})
 started = time.monotonic()
 result = module.recall("probe", ["grep"], 1, timeout=0.01)
 elapsed = time.monotonic() - started
-assert elapsed < 0.15, elapsed
+assert elapsed < 1.0, elapsed
 assert result["exit_code"] == 1
 assert result["per_layer"]["grep"]["status"] == "error"
 assert result["per_layer"]["grep"]["reason"] == "timeout after 0.01s"

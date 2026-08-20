@@ -7,6 +7,7 @@ WT_SNAPSHOT="${ROOT}/bin/wt-snapshot"
 TMP_DIR=$(mktemp -d)
 PASS_COUNT=0
 FAIL_COUNT=0
+SKIP_COUNT=0
 RUN_STDOUT=""
 RUN_STDERR=""
 RUN_STATUS=0
@@ -16,12 +17,12 @@ cleanup() {
   local external_tmp_dir=""
   chmod -R u+rwx "${TMP_DIR}" 2>/dev/null || true
   rm -rf "${TMP_DIR}"
-  for external_tmp_dir in "${EXTERNAL_TMP_DIRS[@]}"; do
+  for external_tmp_dir in ${EXTERNAL_TMP_DIRS[@]+"${EXTERNAL_TMP_DIRS[@]}"}; do
     chmod -R u+rwx "${external_tmp_dir}" 2>/dev/null || true
     rm -rf "${external_tmp_dir}"
   done
 }
-trap cleanup EXIT
+trap finish EXIT
 
 run_capture() {
   RUN_STDOUT="${TMP_DIR}/stdout.${RANDOM}"
@@ -56,13 +57,35 @@ record_pass() {
 record_fail() {
   FAIL_COUNT=$((FAIL_COUNT + 1))
   printf 'FAIL %s: %s\n' "$1" "$2"
+  printf '  diag: RUN_STATUS=%s\n' "${RUN_STATUS}"
+  # RUN_STDOUT/RUN_STDERR may point to an earlier invocation in multi-command cases; that is acceptable and still the best available signal.
+  if [ -n "${RUN_STDERR}" ] && [ -s "${RUN_STDERR}" ]; then
+    printf '  diag: last stderr:\n'
+    tail -n 15 "${RUN_STDERR}" 2>/dev/null | sed 's/^/    | /' || true
+  fi
+  if [ -n "${RUN_STDOUT}" ] && [ -s "${RUN_STDOUT}" ]; then
+    printf '  diag: last stdout:\n'
+    tail -n 8 "${RUN_STDOUT}" 2>/dev/null | sed 's/^/    | /' || true
+  fi
+}
+
+record_skip() {
+  SKIP_COUNT=$((SKIP_COUNT + 1))
+  printf 'SKIP %s: %s\n' "$1" "$2"
 }
 
 finish() {
-  printf '%d passed, %d failed\n' "${PASS_COUNT}" "${FAIL_COUNT}"
+  rc=$?
+  trap - EXIT
+  printf '%d passed, %d failed, %d skipped\n' "${PASS_COUNT}" "${FAIL_COUNT}" "${SKIP_COUNT}"
+  cleanup
   if [ "${FAIL_COUNT}" -ne 0 ]; then
     exit 1
   fi
+  if [ "${rc}" -ne 0 ]; then
+    exit "${rc}"
+  fi
+  exit 0
 }
 
 git_env() {
@@ -608,11 +631,19 @@ case_xattr_metadata_leak_is_scanned_raw() {
   local sandbox="${TMP_DIR}/${case_name}"
   local fixture main_repo worktree wrapper_dir real_tar refs_before refs_after objects_before objects_after
   local scan_cmd='grep -aFq FORBIDDEN-SECRET && exit 17 || exit 0'
+  if ! command -v xattr >/dev/null 2>&1; then
+    record_skip "${case_name}" "xattr not installed"
+    return 0
+  fi
+  real_tar=$(command -v tar || true)
+  if [ -z "${real_tar}" ]; then
+    record_skip "${case_name}" "tar not installed"
+    return 0
+  fi
   fixture=$(make_fixture_repo "${sandbox}")
   main_repo=$(printf '%s\n' "${fixture}" | sed -n '1p')
   worktree=$(printf '%s\n' "${fixture}" | sed -n '2p')
   wrapper_dir="${sandbox}/tar-wrapper"
-  real_tar=$(command -v tar)
   write_tar_interceptor "${wrapper_dir}"
   printf 'safe visible bytes\n' > "${worktree}/visible.txt"
   xattr -w secret.probe FORBIDDEN-SECRET "${worktree}/visible.txt"
@@ -638,6 +669,10 @@ case_xattr_metadata_leak_is_scanned_raw() {
 
 case_xattr_metadata_is_excluded_without_scanner() {
   local case_name="xattr-metadata-is-excluded-without-scanner"
+  if ! command -v xattr >/dev/null 2>&1; then
+    record_skip "${case_name}" "xattr not installed"
+    return 0
+  fi
   local sandbox="${TMP_DIR}/${case_name}"
   local fixture main_repo worktree ref payload expected actual extracted
   fixture=$(make_fixture_repo "${sandbox}")
@@ -681,7 +716,11 @@ case_payload_member_set_mismatch_is_fail_closed() {
   worktree=$(printf '%s\n' "${fixture}" | sed -n '2p')
   wrapper_dir="${sandbox}/tar-wrapper"
   inject_root="${sandbox}/inject-root"
-  real_tar=$(command -v tar)
+  real_tar=$(command -v tar || true)
+  if [ -z "${real_tar}" ]; then
+    record_skip "${case_name}" "tar not installed"
+    return 0
+  fi
   mkdir -p "${inject_root}"
   write_tar_interceptor "${wrapper_dir}"
   printf 'dirty bytes\n' > "${worktree}/visible.txt"
@@ -715,7 +754,11 @@ case_payload_member_type_mismatch_is_fail_closed() {
   main_repo=$(printf '%s\n' "${fixture}" | sed -n '1p')
   worktree=$(printf '%s\n' "${fixture}" | sed -n '2p')
   wrapper_dir="${sandbox}/tar-wrapper"
-  real_tar=$(command -v tar)
+  real_tar=$(command -v tar || true)
+  if [ -z "${real_tar}" ]; then
+    record_skip "${case_name}" "tar not installed"
+    return 0
+  fi
   type_flip_path="type-flip-target"
   write_tar_interceptor "${wrapper_dir}"
   mkdir -p "${worktree}/${type_flip_path}"
@@ -744,8 +787,13 @@ case_payload_member_type_mismatch_is_fail_closed() {
 case_deep_legal_tree_snapshots_and_restores() {
   local case_name="deep-legal-tree-snapshots-and-restores"
   local sandbox fixture main_repo worktree component deep_dir relative relative_file
+  local deep_tmp_base
   local ref restore_dir snapshot_status
-  sandbox=$(mktemp -d /private/tmp/context-kit-wt-snapshot-deep.XXXXXX)
+  deep_tmp_base=/tmp
+  if [ -d /private/tmp ]; then
+    deep_tmp_base=/private/tmp
+  fi
+  sandbox=$(mktemp -d "${deep_tmp_base}/context-kit-wt-snapshot-deep.XXXXXX")
   EXTERNAL_TMP_DIRS+=("${sandbox}")
   fixture=$(make_fixture_repo "${sandbox}")
   main_repo=$(printf '%s\n' "${fixture}" | sed -n '1p')
@@ -799,7 +847,11 @@ case_tar_capability_subset_keeps_both_backstops() {
   inject_root="${sandbox}/inject-root"
   tar_log="${sandbox}/tar.log"
   scan_log="${sandbox}/scan.log"
-  real_tar=$(command -v tar)
+  real_tar=$(command -v tar || true)
+  if [ -z "${real_tar}" ]; then
+    record_skip "${case_name}" "tar not installed"
+    return 0
+  fi
   mkdir -p "${inject_root}"
   write_tar_interceptor "${wrapper_dir}"
   printf 'dirty bytes\n' > "${worktree}/visible.txt"
@@ -1411,4 +1463,3 @@ case_empty_directories_alone_trigger_and_restore
 case_unborn_head_has_targeted_error
 case_restore_rejects_hostile_member_names_before_extract
 case_prune_lists_expired_refs_without_deleting
-finish
