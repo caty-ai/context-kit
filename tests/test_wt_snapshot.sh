@@ -17,7 +17,7 @@ cleanup() {
   local external_tmp_dir=""
   chmod -R u+rwx "${TMP_DIR}" 2>/dev/null || true
   rm -rf "${TMP_DIR}"
-  for external_tmp_dir in "${EXTERNAL_TMP_DIRS[@]}"; do
+  for external_tmp_dir in ${EXTERNAL_TMP_DIRS[@]+"${EXTERNAL_TMP_DIRS[@]}"}; do
     chmod -R u+rwx "${external_tmp_dir}" 2>/dev/null || true
     rm -rf "${external_tmp_dir}"
   done
