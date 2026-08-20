@@ -17,4 +17,5 @@ jobs:
         Makefile
         tests/run.sh
         hooks/**
+        examples/settings.json
       risk_paths_auth: 'none'      # no auth boundary — the reusable's AUTH self-check warning is the recorded no-auth confirmation
