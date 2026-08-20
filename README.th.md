@@ -9,7 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![python](https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white)
 ![node](https://img.shields.io/badge/node-18%2B_optional-lightgrey?logo=nodedotjs&logoColor=white)
-![platform](https://img.shields.io/badge/platform-macOS_tested_%7C_Linux_unverified-lightgrey)
+![platform](https://img.shields.io/badge/platform-macOS_%7C_Linux-lightgrey)
 [![Test + Lint](https://github.com/caty-ai/context-kit/actions/workflows/test-lint.yml/badge.svg)](https://github.com/caty-ai/context-kit/actions/workflows/test-lint.yml)
 
 มอบงานจริงให้ AI เอเจนต์ทำ แล้วอุบัติเหตุเล็กๆ ก็จะตามมา ล็อกไฟล์มหึมาไฟล์เดียวท่วมความจำการทำงานของมัน<br>
@@ -104,7 +104,7 @@ flowchart LR
 | รายการ | การรองรับ |
 | --- | --- |
 | macOS | ✅ ทดสอบแล้ว รวมถึง `wt-snapshot` ที่ใช้ system bsdtar |
-| Linux | ⚠️ ยังไม่ได้ตรวจสอบ; `wt-snapshot` จะตรวจ capability ของ local tar และแจ้ง metadata suppression ที่ไม่รองรับอย่างชัดเจน |
+| Linux | ✅ ตรวจสอบแล้วผ่าน CI (ubuntu-latest); `wt-snapshot` จะตรวจ capability ของ local tar และแจ้ง metadata suppression ที่ไม่รองรับอย่างชัดเจน |
 | AI เอเจนต์ | Claude Code ✅ — hook ออกแบบมาตาม hook spec ของมันโดยเฉพาะ |
 | Python | 3.9 ขึ้นไป จำเป็นสำหรับอุปกรณ์ส่วนใหญ่ |
 | Node.js | 18 ขึ้นไป ใช้เฉพาะการ์ดความปลอดภัย 2 ใน 3 ตัว |
@@ -211,10 +211,10 @@ make test
 
 ## Project status
 
-- **CI:** ยังไม่มี โดยมีแผนเพิ่ม test/lint caller ที่ใช้ร่วมกันใน #20 (B6) ระหว่างนี้ `make test` คือด่านตรวจสอบในเครื่อง
-- **สภาพแวดล้อมที่ตรวจสอบแล้ว:** macOS (ทดสอบในเครื่องแล้ว โดย `make test` ผ่าน 7/7 ชุด) | Linux ยังไม่ได้ตรวจสอบ
+- **CI:** ใช้งานแล้ว gitleaks, history-check, test + lint (ubuntu และ macOS), pr-size และ risk-review gate ทำงานบนทุก PR ในฐานะ caller ของ family reusable workflow (ปักหมุด `ci-v1`) แบดจ์ด้านบนถูกทาสีโดย test-lint workflow
+- **สภาพแวดล้อมที่ตรวจสอบแล้ว:** macOS (ในเครื่อง + CI runner) | Linux (CI runner, ubuntu-latest)
 - **ระดับความพร้อม:** v0.2.0 เปิดตัวอุปกรณ์ชิ้นที่หกคือ `wt-snapshot` อินเทอร์เฟซยังอาจเปลี่ยนแปลงได้
-- **ข้อจำกัดที่ทราบ:** safety guard ถูกออกแบบให้ fail-open การ์ดที่เสียจะไม่บล็อกเอเจนต์ โปรเจกต์นี้ให้ความสำคัญกับ macOS ก่อน และเอกสารระบุไว้ว่าเส้นทาง Linux/GNU tar ของ `wt-snapshot` ยังไม่ได้รับการตรวจสอบ
+- **ข้อจำกัดที่ทราบ:** safety guard ถูกออกแบบให้ fail-open การ์ดที่เสียจะไม่บล็อกเอเจนต์ โปรเจกต์นี้ให้ความสำคัญกับ macOS ก่อน โดยเส้นทาง Linux/GNU tar ของ `wt-snapshot` ได้รับการตรวจสอบจริงผ่าน CI แล้ว
 
 <!-- family:generated:family-footer:start -->
 
