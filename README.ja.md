@@ -9,7 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![python](https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white)
 ![node](https://img.shields.io/badge/node-18%2B_optional-lightgrey?logo=nodedotjs&logoColor=white)
-![platform](https://img.shields.io/badge/platform-macOS_tested_%7C_Linux_unverified-lightgrey)
+![platform](https://img.shields.io/badge/platform-macOS_%7C_Linux-lightgrey)
 [![Test + Lint](https://github.com/caty-ai/context-kit/actions/workflows/test-lint.yml/badge.svg)](https://github.com/caty-ai/context-kit/actions/workflows/test-lint.yml)
 
 AI エージェントに本物の仕事を任せると、小さな事故がついてきます。巨大なログが作業記憶（会話に持てるコンテキスト）を押し流し、<br>
@@ -104,7 +104,7 @@ flowchart LR
 | 項目 | 対応 |
 | --- | --- |
 | macOS | ✅ system bsdtar を使う `wt-snapshot` を含め検証済み |
-| Linux | ⚠️ 未検証。`wt-snapshot` は local tar option を capability-probe し、未対応の metadata suppression を明示する |
+| Linux | ✅ CI で検証済み（ubuntu-latest）。`wt-snapshot` は local tar option を capability-probe し、未対応の metadata suppression を明示する |
 | AI エージェント | Claude Code ✅ — hook はその hook 仕様が対象 |
 | Python | 3.9 以上（ほとんどの装備で必要） |
 | Node.js | 18 以上（安全ガード3本のうち2本だけで必要） |
@@ -211,10 +211,10 @@ make test
 
 ## Project status
 
-- **CI:** まだありません。共有 test/lint caller は #20（B6）で導入予定です。それまでは `make test` がローカルのゲートです。
-- **検証済み環境:** macOS（ローカルで検証済み、`make test` は 7/7 suites 成功）｜ Linux は未検証。
+- **CI:** 稼働中。gitleaks・history-check・test + lint（ubuntu と macOS）・pr-size・risk-review gate が、家族共通の reusable workflow（`ci-v1` ピン）の caller としてすべての PR で走ります。上のバッジは test-lint workflow が塗っています。
+- **検証済み環境:** macOS（ローカル + CI ランナー）｜ Linux（CI ランナー、ubuntu-latest）。
 - **成熟度:** v0.2.0 で6番目の装備 `wt-snapshot` をリリースしました。インターフェースは今後も変わる可能性があります。
-- **既知の制限:** safety guard は意図的に fail-open です。guard が壊れてもエージェントをブロックしません。macOS-first であり、`wt-snapshot` の Linux/GNU tar 経路が未検証であることをドキュメントに明記しています。
+- **既知の制限:** safety guard は意図的に fail-open です。guard が壊れてもエージェントをブロックしません。macOS-first ですが、`wt-snapshot` の Linux/GNU tar 経路は CI で実走検証されています。
 
 <!-- family:generated:family-footer:start -->
 

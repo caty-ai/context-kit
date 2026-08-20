@@ -9,7 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![python](https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white)
 ![node](https://img.shields.io/badge/node-18%2B_optional-lightgrey?logo=nodedotjs&logoColor=white)
-![platform](https://img.shields.io/badge/platform-macOS_tested_%7C_Linux_unverified-lightgrey)
+![platform](https://img.shields.io/badge/platform-macOS_%7C_Linux-lightgrey)
 [![Test + Lint](https://github.com/caty-ai/context-kit/actions/workflows/test-lint.yml/badge.svg)](https://github.com/caty-ai/context-kit/actions/workflows/test-lint.yml)
 
 Hand real work to an AI agent and small accidents follow: one giant log floods its working memory,<br>
@@ -104,7 +104,7 @@ Before installing, check what it runs on.
 | Item | Support |
 | --- | --- |
 | macOS | ✅ tested, including `wt-snapshot` with the system bsdtar |
-| Linux | ⚠️ not yet verified; `wt-snapshot` capability-probes local tar options and reports unsupported metadata suppression |
+| Linux | ✅ verified in CI (ubuntu-latest); `wt-snapshot` capability-probes local tar options and reports unsupported metadata suppression |
 | AI agent | Claude Code ✅ — the hooks target its hook spec |
 | Python | 3.9 or newer, required by most pieces |
 | Node.js | 18 or newer, only for two of the three safety guards |
@@ -211,10 +211,10 @@ The details live in reader-specific docs, one level deeper.
 
 ## Project status
 
-- **CI:** Not yet. The shared test-and-lint caller is planned for #20 (B6); until then, `make test` is the local gate.
-- **Verified environments:** macOS (tested locally; `make test`: 7/7 suites passed) | Linux unverified.
+- **CI:** Live. gitleaks, history-check, test + lint (ubuntu & macOS), pr-size, and the risk-review gate run on every PR as callers of the family reusable workflows (pinned `ci-v1`); the badge above is painted by the test-lint workflow.
+- **Verified environments:** macOS (local + CI runner) | Linux (CI runner, ubuntu-latest).
 - **Maturity:** v0.2.0 shipped the sixth piece, `wt-snapshot`. Interfaces may still move.
-- **Known limits:** Safety guards are fail-open by design: a broken guard never blocks the agent. The project is macOS-first; `wt-snapshot` documents its unverified Linux/GNU tar path.
+- **Known limits:** Safety guards are fail-open by design: a broken guard never blocks the agent. The project is macOS-first; the Linux/GNU tar path of `wt-snapshot` is exercised by CI.
 
 <!-- family:generated:family-footer:start -->
 
