@@ -10,7 +10,7 @@
 ![python](https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white)
 ![node](https://img.shields.io/badge/node-18%2B_optional-lightgrey?logo=nodedotjs&logoColor=white)
 ![platform](https://img.shields.io/badge/platform-macOS_tested_%7C_Linux_unverified-lightgrey)
-![CI](https://img.shields.io/badge/CI-not_yet-lightgrey)
+[![Test + Lint](https://github.com/caty-ai/context-kit/actions/workflows/test-lint.yml/badge.svg)](https://github.com/caty-ai/context-kit/actions/workflows/test-lint.yml)
 
 AI エージェントに本物の仕事を任せると、小さな事故がついてきます。巨大なログが作業記憶（会話に持てるコンテキスト）を押し流し、<br>
 危ない削除コマンドまであと1歩、API キーがファイルに書き込まれる寸前——。<br>
