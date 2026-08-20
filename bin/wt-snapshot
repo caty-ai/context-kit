@@ -155,12 +155,12 @@ git_base() {
     -u GIT_EXTERNAL_DIFF \
     -u GIT_CONFIG_PARAMETERS \
     -u GIT_CONFIG_COUNT \
-    "${GIT_ENV_BASE[@]}" \
-    git "${GIT_CONFIG_ARGS[@]}" "$@"
+    ${GIT_ENV_BASE[@]+"${GIT_ENV_BASE[@]}"} \
+    git ${GIT_CONFIG_ARGS[@]+"${GIT_CONFIG_ARGS[@]}"} "$@"
 }
 
 git_maybe() {
-  git_base "${GIT_CTX_ARGS[@]}" "$@"
+  git_base ${GIT_CTX_ARGS[@]+"${GIT_CTX_ARGS[@]}"} "$@"
 }
 
 git_at_maybe() {
@@ -173,8 +173,8 @@ git_at_maybe() {
     -u GIT_EXTERNAL_DIFF \
     -u GIT_CONFIG_PARAMETERS \
     -u GIT_CONFIG_COUNT \
-    "${GIT_ENV_BASE[@]}" \
-    git "${GIT_CONFIG_ARGS[@]}" -C "${directory}" "$@"
+    ${GIT_ENV_BASE[@]+"${GIT_ENV_BASE[@]}"} \
+    git ${GIT_CONFIG_ARGS[@]+"${GIT_CONFIG_ARGS[@]}"} -C "${directory}" "$@"
 }
 
 git_at_run() {
@@ -235,9 +235,9 @@ with_temp_index_maybe() {
     -u GIT_EXTERNAL_DIFF \
     -u GIT_CONFIG_PARAMETERS \
     -u GIT_CONFIG_COUNT \
-    "${GIT_ENV_BASE[@]}" \
+    ${GIT_ENV_BASE[@]+"${GIT_ENV_BASE[@]}"} \
     "GIT_INDEX_FILE=${index_file}" \
-    git "${GIT_CONFIG_ARGS[@]}" "${GIT_CTX_ARGS[@]}" "$@"
+    git ${GIT_CONFIG_ARGS[@]+"${GIT_CONFIG_ARGS[@]}"} ${GIT_CTX_ARGS[@]+"${GIT_CTX_ARGS[@]}"} "$@"
 }
 
 with_temp_index_run() {
@@ -490,7 +490,7 @@ collect_candidate_paths() {
   : > "${IGNORED_LIST}"
   parse_ignored_specs
   if [ "${#IGNORED_PATHSPECS[@]}" -gt 0 ]; then
-    append_ls_files_output "${IGNORED_LIST}" ls-files -z --others --ignored --exclude-standard --directory -- "${IGNORED_PATHSPECS[@]}"
+    append_ls_files_output "${IGNORED_LIST}" ls-files -z --others --ignored --exclude-standard --directory -- ${IGNORED_PATHSPECS[@]+"${IGNORED_PATHSPECS[@]}"}
   fi
 
   : > "${ARCHIVE_LIST}"
@@ -760,7 +760,7 @@ scan_payload_archive() {
   local scan_root="${TMP_DIR}/scan-root"
   local rel_path=""
   mkdir -p "${scan_root}"
-  if ! COPYFILE_DISABLE=1 tar "${TAR_SUPPRESSION_FLAGS[@]}" \
+  if ! COPYFILE_DISABLE=1 tar ${TAR_SUPPRESSION_FLAGS[@]+"${TAR_SUPPRESSION_FLAGS[@]}"} \
     --no-same-owner -xpf "${payload_file}" -C "${scan_root}"; then
     die_runtime "failed to extract snapshot payload for scanning"
   fi
@@ -882,7 +882,7 @@ scan_staged_index_paths() {
 create_payload_archive() {
   local payload_file="$1"
 
-  if ! COPYFILE_DISABLE=1 tar "${TAR_SUPPRESSION_FLAGS[@]}" \
+  if ! COPYFILE_DISABLE=1 tar ${TAR_SUPPRESSION_FLAGS[@]+"${TAR_SUPPRESSION_FLAGS[@]}"} \
     -cpf "${payload_file}" --no-recursion -C "${WORKTREE_ROOT}" --null -T "${ARCHIVE_LIST}"; then
     die_runtime "failed to create snapshot payload archive"
   fi
@@ -1047,11 +1047,16 @@ restore_snapshot() {
 
 timestamp_to_epoch() {
   local timestamp="$1"
+  local iso=""
 
   if date -j -u -f '%Y%m%dT%H%M%SZ' "${timestamp}" '+%s' >/dev/null 2>&1; then
     date -j -u -f '%Y%m%dT%H%M%SZ' "${timestamp}" '+%s'
   else
-    date -u -d "${timestamp}" '+%s'
+    if [[ ! "${timestamp}" =~ ^[0-9]{8}T[0-9]{6}Z$ ]]; then
+      return 1
+    fi
+    iso="${timestamp:0:4}-${timestamp:4:2}-${timestamp:6:2}T${timestamp:9:2}:${timestamp:11:2}:${timestamp:13:2}Z"
+    date -u -d "${iso}" '+%s'
   fi
 }
 

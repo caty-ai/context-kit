@@ -17,7 +17,7 @@ cleanup() {
   local external_tmp_dir=""
   chmod -R u+rwx "${TMP_DIR}" 2>/dev/null || true
   rm -rf "${TMP_DIR}"
-  for external_tmp_dir in "${EXTERNAL_TMP_DIRS[@]}"; do
+  for external_tmp_dir in ${EXTERNAL_TMP_DIRS[@]+"${EXTERNAL_TMP_DIRS[@]}"}; do
     chmod -R u+rwx "${external_tmp_dir}" 2>/dev/null || true
     rm -rf "${external_tmp_dir}"
   done
@@ -57,6 +57,16 @@ record_pass() {
 record_fail() {
   FAIL_COUNT=$((FAIL_COUNT + 1))
   printf 'FAIL %s: %s\n' "$1" "$2"
+  printf '  diag: RUN_STATUS=%s\n' "${RUN_STATUS}"
+  # RUN_STDOUT/RUN_STDERR may point to an earlier invocation in multi-command cases; that is acceptable and still the best available signal.
+  if [ -n "${RUN_STDERR}" ] && [ -s "${RUN_STDERR}" ]; then
+    printf '  diag: last stderr:\n'
+    tail -n 15 "${RUN_STDERR}" 2>/dev/null | sed 's/^/    | /' || true
+  fi
+  if [ -n "${RUN_STDOUT}" ] && [ -s "${RUN_STDOUT}" ]; then
+    printf '  diag: last stdout:\n'
+    tail -n 8 "${RUN_STDOUT}" 2>/dev/null | sed 's/^/    | /' || true
+  fi
 }
 
 record_skip() {
