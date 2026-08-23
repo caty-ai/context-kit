@@ -136,6 +136,8 @@ npm i -g @caty-ai/context-kit
 context-kit install
 ```
 
+Uninstall notes live in the [npm README](https://github.com/caty-ai/context-kit/blob/main/packages/npm/README.md#uninstall).
+
 The clone-based steps below remain available as the manual alternative.
 
 ### Ask your AI to install it

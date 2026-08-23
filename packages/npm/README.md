@@ -42,7 +42,9 @@ Available pieces are `lg`, `scratch-persist`, `brief-validator`, `safety-hooks`,
 There is no uninstall command in this release. To remove the kit manually:
 
 1. Remove `~/.claude/context-kit`.
-2. Remove only the hook entries whose commands point into that directory from `~/.claude/settings.json`, or restore the installer backup after confirming it does not discard later settings changes.
+2. If `~/.claude/settings.json` did not exist before install, delete it. Otherwise remove only the hook entries whose commands point into that directory from `~/.claude/settings.json`, or restore a non-empty installer backup after confirming it does not discard later settings changes.
 3. Remove any shell configuration that added `~/.claude/context-kit/bin` to `PATH`.
+
+Restore instructions apply only when a non-empty backup exists.
 
 For piece-specific behavior and verification, read the absolute project docs for [lg](https://github.com/caty-ai/context-kit/blob/main/docs/lg.md), [scratch-persist](https://github.com/caty-ai/context-kit/blob/main/docs/scratch-persist.md), [brief-validator](https://github.com/caty-ai/context-kit/blob/main/docs/brief-validator.md), [safety hooks](https://github.com/caty-ai/context-kit/blob/main/docs/safety-hooks.md), [recall](https://github.com/caty-ai/context-kit/blob/main/docs/recall.md), and [wt-snapshot](https://github.com/caty-ai/context-kit/blob/main/docs/wt-snapshot.md).

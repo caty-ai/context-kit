@@ -5,9 +5,11 @@ import {
   access,
   chmod,
   copyFile,
+  lstat,
   mkdir,
   open,
   readFile,
+  realpath,
   rename,
   stat,
   unlink,
@@ -454,12 +456,8 @@ function indentBlock(value, baseIndent, indent, eol) {
 
 function insertIntoObject(text, object, property, memberIndent, closeIndent, eol) {
   if (object.members.length === 0) {
-    const whitespace = text.slice(object.openIndex + 1, object.closeIndex);
-    const insertion = whitespace.includes('\n')
-      ? `${eol}${memberIndent}${property}`
-      : property;
-    const position = object.openIndex + 1;
-    return text.slice(0, position) + insertion + text.slice(position);
+    const insertion = `${eol}${memberIndent}${property}${eol}${closeIndent}`;
+    return text.slice(0, object.openIndex + 1) + insertion + text.slice(object.closeIndex);
   }
 
   const lastMember = object.members[object.members.length - 1];
@@ -474,12 +472,10 @@ function insertIntoObject(text, object, property, memberIndent, closeIndent, eol
 function appendToArray(text, array, entries, entryIndent, closeIndent, indent, eol) {
   const blocks = entries.map((entry) => indentBlock(entry, entryIndent, indent, eol));
   if (array.values.length === 0) {
-    const whitespace = text.slice(array.openIndex + 1, array.closeIndex);
-    const insertion = whitespace.includes('\n')
-      ? `${eol}${entryIndent}${blocks.join(`,${eol}${entryIndent}`)}`
-      : blocks.join(`,${eol}${entryIndent}`);
-    const position = array.openIndex + 1;
-    return text.slice(0, position) + insertion + text.slice(position);
+    const insertion = `${eol}${entryIndent}${blocks.join(
+      `,${eol}${entryIndent}`,
+    )}${eol}${closeIndent}`;
+    return text.slice(0, array.openIndex + 1) + insertion + text.slice(array.closeIndex);
   }
 
   const lastValue = array.values[array.values.length - 1];
@@ -637,7 +633,34 @@ function newSettingsText(additionsByEvent) {
   return `${JSON.stringify({ hooks }, null, 2)}\n`;
 }
 
-async function planSettings(settingsPath, additionsByEvent) {
+async function resolveSettingsLocation(settingsPath) {
+  let stats;
+  try {
+    stats = await lstat(settingsPath);
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      return { displayPath: settingsPath, resolvedPath: settingsPath };
+    }
+    throw error;
+  }
+
+  if (!stats.isSymbolicLink()) {
+    return { displayPath: settingsPath, resolvedPath: settingsPath };
+  }
+
+  try {
+    return { displayPath: settingsPath, resolvedPath: await realpath(settingsPath) };
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      throw new CliError(
+        `Cannot merge ${settingsPath}: settings.json is a dangling symlink. Fix or remove the dangling link before installing.`,
+      );
+    }
+    throw error;
+  }
+}
+
+async function planSettings(settingsPath, additionsByEvent, displayPath = settingsPath) {
   if (additionsByEvent.size === 0) {
     return {
       exists: false,
@@ -646,6 +669,7 @@ async function planSettings(settingsPath, additionsByEvent) {
       nextText: '',
       changed: false,
       added: 0,
+      displayPath,
       skipped: 0,
       newEntries: new Map(),
     };
@@ -669,6 +693,7 @@ async function planSettings(settingsPath, additionsByEvent) {
       nextText,
       changed: true,
       added: [...additionsByEvent.values()].reduce((sum, entries) => sum + entries.length, 0),
+      displayPath,
       skipped: 0,
       newEntries: additionsByEvent,
     };
@@ -676,11 +701,11 @@ async function planSettings(settingsPath, additionsByEvent) {
 
   const originalText = originalBuffer.toString('utf8');
   if (!Buffer.from(originalText, 'utf8').equals(originalBuffer)) {
-    throw new CliError(`Cannot merge ${settingsPath}: file is not valid UTF-8.`);
+    throw new CliError(`Cannot merge ${displayPath}: file is not valid UTF-8.`);
   }
-  const before = parseSettings(originalText, settingsPath);
-  const merged = mergeSettingsText(originalText, before, additionsByEvent, settingsPath);
-  parseSettings(merged.text, settingsPath);
+  const before = parseSettings(originalText, displayPath);
+  const merged = mergeSettingsText(originalText, before, additionsByEvent, displayPath);
+  parseSettings(merged.text, displayPath);
   return {
     exists: true,
     originalText,
@@ -688,6 +713,7 @@ async function planSettings(settingsPath, additionsByEvent) {
     nextText: merged.text,
     changed: merged.text !== originalText,
     added: merged.added,
+    displayPath,
     skipped: merged.skipped,
     newEntries: merged.newEntries,
   };
@@ -847,6 +873,9 @@ async function restoreOriginal(settingsPath, plan, backupPath, mode) {
     });
     return;
   }
+  if (backupPath === undefined) {
+    throw new Error('no backup available for restore');
+  }
   const backupText = await readFile(backupPath, 'utf8');
   await atomicWrite(settingsPath, backupText, mode);
 }
@@ -860,7 +889,9 @@ async function writeSettings(settingsPath, plan) {
   if (plan.exists) {
     mode = (await stat(settingsPath)).mode & 0o777;
   }
-  const backupPath = await createBackup(settingsPath, plan.originalText);
+  const backupPath = plan.exists
+    ? await createBackup(settingsPath, plan.originalText)
+    : undefined;
   let renamed = false;
   try {
     await atomicWrite(settingsPath, plan.nextText, mode);
@@ -881,8 +912,8 @@ async function writeSettings(settingsPath, plan) {
       }
     }
     throw new CliError(
-      `Settings write failed${renamed ? ' verification; original restored' : ''}: ${error.message}. ` +
-        `Backup retained at ${backupPath}.`,
+      `Settings write failed${renamed ? ' verification; original restored' : ''}: ${error.message}.` +
+        `${backupPath === undefined ? '' : ` Backup retained at ${backupPath}.`}`,
     );
   }
 }
@@ -956,6 +987,22 @@ function wantsPathHint(selectedPieces) {
   return selectedPieces.some((piece) => ['lg', 'recall', 'wt-snapshot'].includes(piece));
 }
 
+function validateInstallRoot(installRoot) {
+  if (/["$`\\\r\n]/.test(installRoot)) {
+    throw new CliError(
+      `Cannot install to ${installRoot}: install roots embedded in hook commands cannot contain ", $, \`, \\, or newlines.`,
+    );
+  }
+}
+
+function pathHint(installRoot) {
+  const defaultRoot = path.resolve(path.join(homedir(), '.claude', 'context-kit'));
+  if (installRoot === defaultRoot) {
+    return '$HOME/.claude/context-kit/bin';
+  }
+  return path.join(installRoot, 'bin');
+}
+
 async function install(options) {
   let selectedPieces = options.all
     ? [...PIECE_ORDER]
@@ -968,11 +1015,17 @@ async function install(options) {
   }
 
   const installRoot = path.resolve(options.prefix || path.join(homedir(), '.claude', 'context-kit'));
+  validateInstallRoot(installRoot);
   const settingsPath = path.resolve(options.settings || path.join(homedir(), '.claude', 'settings.json'));
+  const settingsLocation = await resolveSettingsLocation(settingsPath);
   const payloadRoot = await resolvePayloadRoot();
   const filePlans = await planFiles(payloadRoot, installRoot, selectedPieces);
   const additions = additionsFor(selectedPieces, installRoot);
-  const settingsPlan = await planSettings(settingsPath, additions);
+  const settingsPlan = await planSettings(
+    settingsLocation.resolvedPath,
+    additions,
+    settingsLocation.displayPath,
+  );
 
   if (!options.apply) {
     console.log('Dry run (no files will be written)');
@@ -981,7 +1034,11 @@ async function install(options) {
       console.log(`  ${plan.status.padEnd(10)} ${plan.destination}`);
     }
     console.log('\nsettings.json:');
-    const diff = unifiedDiff(settingsPlan.originalText, settingsPlan.nextText, settingsPath);
+    const diff = unifiedDiff(
+      settingsPlan.originalText,
+      settingsPlan.nextText,
+      settingsPlan.displayPath,
+    );
     console.log(diff || '  no changes');
     console.log('\nApply with:');
     console.log(`  ${applyCommand(selectedPieces, options)}`);
@@ -994,15 +1051,23 @@ async function install(options) {
   } catch (error) {
     throw new CliError(`Payload copy failed; settings were not touched: ${error.message}`);
   }
-  const backupPath = await writeSettings(settingsPath, settingsPlan);
+  const backupPath = await writeSettings(settingsLocation.resolvedPath, settingsPlan);
 
   console.log('Context Kit install complete.');
   console.log(`Files copied: ${fileResult.copied}; up to date: ${fileResult.upToDate}`);
   console.log(`Hook entries added: ${settingsPlan.added}; skipped: ${settingsPlan.skipped}`);
   console.log(`Settings: ${settingsPlan.changed ? 'updated' : 'no changes'}`);
-  console.log(`Backup: ${backupPath || 'none (settings unchanged)'}`);
+  console.log(
+    `Backup: ${
+      settingsPlan.changed
+        ? settingsPlan.exists
+          ? backupPath
+          : 'none (new file)'
+        : 'none (settings unchanged)'
+    }`,
+  );
   if (wantsPathHint(selectedPieces)) {
-    console.log('PATH hint: export PATH="$HOME/.claude/context-kit/bin:$PATH"');
+    console.log(`PATH hint: export PATH="${pathHint(installRoot)}:$PATH"`);
   }
 }
 
@@ -1026,9 +1091,14 @@ export async function main(argv = process.argv.slice(2)) {
   }
 }
 
-if (
-  process.argv[1] !== undefined &&
-  import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
-) {
-  process.exitCode = await main();
+if (process.argv[1] !== undefined) {
+  let invoked;
+  try {
+    invoked = await realpath(process.argv[1]);
+  } catch {
+    invoked = path.resolve(process.argv[1]);
+  }
+  if (import.meta.url === pathToFileURL(invoked).href) {
+    process.exitCode = await main();
+  }
 }

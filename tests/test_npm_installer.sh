@@ -7,6 +7,8 @@ INSTALLER="${ROOT}/packages/npm/bin/context-kit.mjs"
 TMP_DIR=$(mktemp -d)
 PASS_COUNT=0
 FAIL_COUNT=0
+SKIP_COUNT=0
+CASE_SKIP_REASON=''
 
 cleanup() {
   chmod -R u+rwx "${TMP_DIR}" 2>/dev/null || true
@@ -24,11 +26,21 @@ record_fail() {
   printf 'FAIL %s: %s\n' "$1" "$2"
 }
 
+record_skip() {
+  SKIP_COUNT=$((SKIP_COUNT + 1))
+  printf 'SKIP %s: %s\n' "$1" "$2"
+}
+
 run_case() {
   local name="$1"
   local function_name="$2"
-  if "${function_name}"; then
+  local rc=0
+  CASE_SKIP_REASON=''
+  "${function_name}" || rc=$?
+  if [ "${rc}" -eq 0 ]; then
     record_pass "${name}"
+  elif [ "${rc}" -eq 2 ]; then
+    record_skip "${name}" "${CASE_SKIP_REASON:-case skipped}"
   else
     record_fail "${name}" "case assertions failed"
   fi
@@ -64,7 +76,7 @@ case_fresh_install() {
   done
   [ "$(find "${home}/.claude/context-kit" -type f | wc -l | tr -d ' ')" = "11" ] || return 1
 
-  node - "${home}/.claude/settings.json" "${home}/.claude/context-kit" <<'NODE'
+  node - "${home}/.claude/settings.json" "${home}/.claude/context-kit" <<'NODE' || return 1
 const fs = require('node:fs');
 const [settingsPath, installRoot] = process.argv.slice(2);
 const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
@@ -79,7 +91,9 @@ if (Object.prototype.hasOwnProperty.call(scratch, 'matcher')) process.exit(1);
 NODE
 
   [ -x "${home}/.claude/context-kit/bin/lg" ] || return 1
+  [ "$(backup_count "${home}/.claude")" = "0" ] || return 1
   grep -Fq 'Hook entries added: 6; skipped: 0' "${output}" || return 1
+  grep -Fq 'Backup: none (new file)' "${output}" || return 1
 }
 
 case_idempotent() {
@@ -96,8 +110,10 @@ case_idempotent() {
   HOME="${home}" node "${INSTALLER}" install --all --apply >"${second}" 2>&1 || return 1
   cmp "${snapshot}" "${home}/.claude/settings.json" || return 1
   [ "$(backup_count "${home}/.claude")" = "${backups_before}" ] || return 1
+  [ "${backups_before}" = "0" ] || return 1
   grep -Fq 'Hook entries added: 0; skipped: 6' "${second}" || return 1
   grep -Fq 'Settings: no changes' "${second}" || return 1
+  grep -Fq 'Backup: none (settings unchanged)' "${second}" || return 1
   ! grep -Fq -- '--- ' "${second}" || return 1
 }
 
@@ -123,7 +139,7 @@ case_byte_preservation_and_backup() {
   local settings="${home}/.claude/settings.json"
   local snapshot="${TMP_DIR}/bytes.settings"
   mkdir -p "${home}/.claude"
-  printf '%s' $'{\n\t"zeta": {"literal": "hooks ] }", "nested": [1, {"x": "} ]"}]},\n\t"hooks": {\n\t\t"PreToolUse": [\n\t\t\t{"matcher":"Read","hooks":[{"type":"command","command":"printf bracket-] brace-} hooks"}]}\n\t\t]\n\t},\n\t"alpha": true\n}' >"${settings}"
+  printf '%s' $'{\n\t"zeta": {"literal": "hooks ] }", "escaped": "say \\"hi\\" ] }", "nested": [1, {"x": "} ]"}]},\n\t"hooks": {\n\t\t"PreToolUse": [\n\t\t\t{"matcher":"Read","hooks":[{"type":"command","command":"printf \\"kept\\" bracket-] brace-} hooks"}]}\n\t\t]\n\t},\n\t"alpha": true\n}' >"${settings}"
   cp "${settings}" "${snapshot}"
 
   HOME="${home}" node "${INSTALLER}" install lg --apply >"${TMP_DIR}/bytes.out" 2>&1 || return 1
@@ -133,12 +149,12 @@ case_byte_preservation_and_backup() {
   [ "$(printf '%s\n' "${backup}" | wc -l | tr -d ' ')" = "1" ] || return 1
   cmp "${snapshot}" "${backup}" || return 1
 
-  node - "${snapshot}" "${settings}" <<'NODE'
+  node - "${snapshot}" "${settings}" <<'NODE' || return 1
 const fs = require('node:fs');
 const [beforePath, afterPath] = process.argv.slice(2);
 const before = fs.readFileSync(beforePath, 'utf8');
 const after = fs.readFileSync(afterPath, 'utf8');
-const needle = '{"matcher":"Read","hooks":[{"type":"command","command":"printf bracket-] brace-} hooks"}]}';
+const needle = '{"matcher":"Read","hooks":[{"type":"command","command":"printf \\"kept\\" bracket-] brace-} hooks"}]}';
 const insertionPoint = before.indexOf(needle) + needle.length;
 if (insertionPoint < needle.length) process.exit(1);
 if (after.slice(0, insertionPoint) !== before.slice(0, insertionPoint)) process.exit(1);
@@ -150,6 +166,8 @@ if (JSON.stringify(installed.zeta) !== JSON.stringify(original.zeta)) process.ex
 if (installed.alpha !== original.alpha) process.exit(1);
 if (JSON.stringify(installed.hooks.PreToolUse[0]) !== JSON.stringify(original.hooks.PreToolUse[0])) process.exit(1);
 if (installed.hooks.PreToolUse.length !== 2) process.exit(1);
+if (!after.includes('\\"hi\\"')) process.exit(1);
+if (!after.includes('printf \\"kept\\" bracket-] brace-} hooks')) process.exit(1);
 if (!after.includes('\n\t\t\t{\n\t\t\t\t"matcher"')) process.exit(1);
 NODE
 }
@@ -165,7 +183,7 @@ case_partial_selection() {
   [ ! -e "${home}/.claude/context-kit/bin/wt-snapshot" ] || return 1
   [ ! -e "${home}/.claude/context-kit/hooks/scratch-persist.sh" ] || return 1
 
-  node - "${home}/.claude/settings.json" <<'NODE'
+  node - "${home}/.claude/settings.json" <<'NODE' || return 1
 const fs = require('node:fs');
 const settings = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 if (Object.keys(settings.hooks).join(',') !== 'PreToolUse') process.exit(1);
@@ -200,7 +218,7 @@ case_missing_hooks_and_event() {
   HOME="${no_hooks_home}" node "${INSTALLER}" install lg --apply >"${TMP_DIR}/no-hooks.out" 2>&1 || return 1
   HOME="${no_event_home}" node "${INSTALLER}" install lg --apply >"${TMP_DIR}/no-event.out" 2>&1 || return 1
 
-  node - "${no_hooks_home}/.claude/settings.json" "${no_event_home}/.claude/settings.json" <<'NODE'
+  node - "${no_hooks_home}/.claude/settings.json" "${no_event_home}/.claude/settings.json" <<'NODE' || return 1
 const fs = require('node:fs');
 const [noHooksPath, noEventPath] = process.argv.slice(2);
 const noHooks = JSON.parse(fs.readFileSync(noHooksPath, 'utf8'));
@@ -218,7 +236,7 @@ case_command_based_dedupe() {
   local settings="${home}/.claude/settings.json"
   local snapshot="${TMP_DIR}/dedupe.settings"
   mkdir -p "${home}/.claude"
-  node - "${settings}" "${home}/.claude/context-kit" <<'NODE'
+  node - "${settings}" "${home}/.claude/context-kit" <<'NODE' || return 1
 const fs = require('node:fs');
 const [settingsPath, root] = process.argv.slice(2);
 const command = `sh -c 'f="${root}/hooks/lg-enforcer.py"; if [ -f "$f" ] && [ -r "$f" ] && command -v python3 >/dev/null 2>&1; then python3 "$f"; fi'`;
@@ -237,7 +255,7 @@ case_same_command_different_event() {
   local home="${TMP_DIR}/different-event"
   local settings="${home}/.claude/settings.json"
   mkdir -p "${home}/.claude"
-  node - "${settings}" "${home}/.claude/context-kit" <<'NODE'
+  node - "${settings}" "${home}/.claude/context-kit" <<'NODE' || return 1
 const fs = require('node:fs');
 const [settingsPath, root] = process.argv.slice(2);
 const command = `sh -c 'f="${root}/hooks/lg-enforcer.py"; if [ -f "$f" ] && [ -r "$f" ] && command -v python3 >/dev/null 2>&1; then python3 "$f"; fi'`;
@@ -246,7 +264,7 @@ fs.writeFileSync(settingsPath, JSON.stringify({
 }, null, 2));
 NODE
   HOME="${home}" node "${INSTALLER}" install lg --apply >"${TMP_DIR}/different-event.out" 2>&1 || return 1
-  node - "${settings}" <<'NODE'
+  node - "${settings}" <<'NODE' || return 1
 const fs = require('node:fs');
 const settings = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 if (settings.hooks.PostToolUse.length !== 1) process.exit(1);
@@ -254,6 +272,122 @@ if (settings.hooks.PreToolUse.length !== 1) process.exit(1);
 if (settings.hooks.PostToolUse[0].hooks[0].command !== settings.hooks.PreToolUse[0].hooks[0].command) process.exit(1);
 NODE
   grep -Fq 'Hook entries added: 1; skipped: 0' "${TMP_DIR}/different-event.out" || return 1
+}
+
+case_packaged_tarball_bin_symlink() {
+  if ! command -v npm >/dev/null 2>&1; then
+    CASE_SKIP_REASON='npm is not available'
+    return 2
+  fi
+
+  local sandbox="${TMP_DIR}/packaged"
+  local package_copy="${sandbox}/package"
+  local app="${sandbox}/app"
+  local home="${sandbox}/home"
+  local npm_cache="${sandbox}/npm-cache"
+  local output="${sandbox}/packaged.out"
+  mkdir -p "${sandbox}"
+  cp -R "${ROOT}/packages/npm" "${package_copy}" || return 1
+  mkdir -p "${package_copy}/kit" || return 1
+  cp -R "${ROOT}/bin" "${ROOT}/hooks" "${package_copy}/kit/" || return 1
+  cp "${ROOT}/LICENSE" "${package_copy}/LICENSE" || return 1
+
+  local tarball
+  tarball=$(cd "${package_copy}" && NPM_CONFIG_CACHE="${npm_cache}" npm pack --silent) || return 1
+  mkdir -p "${app}" "${home}" || return 1
+  (
+    cd "${app}" &&
+      NPM_CONFIG_CACHE="${npm_cache}" npm install "${package_copy}/${tarball}" \
+        >"${sandbox}/npm-install.out" 2>&1
+  ) || return 1
+  HOME="${home}" "${app}/node_modules/.bin/context-kit" install --all --apply >"${output}" 2>&1 || return 1
+
+  grep -Fq 'Hook entries added: 6; skipped: 0' "${output}" || return 1
+  [ -x "${home}/.claude/context-kit/bin/lg" ] || return 1
+  node - "${home}/.claude/settings.json" <<'NODE' || return 1
+const fs = require('node:fs');
+const settings = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+if (settings.hooks.PreToolUse.length !== 5) process.exit(1);
+if (settings.hooks.PostToolUse.length !== 1) process.exit(1);
+NODE
+}
+
+case_symlink_entrypoint_smoke() {
+  local home="${TMP_DIR}/symlink-home"
+  local link="${TMP_DIR}/context-kit-link.mjs"
+  local output="${TMP_DIR}/symlink-entrypoint.out"
+  mkdir -p "${home}"
+  ln -sf "${INSTALLER}" "${link}" || return 1
+  HOME="${home}" "${link}" install --all >"${output}" 2>&1 || return 1
+  [ -s "${output}" ] || return 1
+  grep -Fq 'Dry run (no files will be written)' "${output}" || return 1
+}
+
+case_empty_container_formatting() {
+  local home="${TMP_DIR}/empty-format"
+  local root_settings="${home}/root-empty.json"
+  local hooks_settings="${home}/hooks-empty.json"
+  local event_settings="${home}/event-empty.json"
+  mkdir -p "${home}"
+  printf '%s' '{}' >"${root_settings}"
+  printf '%s' '{"hooks":{}}' >"${hooks_settings}"
+  printf '%s' '{"hooks":{"PreToolUse":[]}}' >"${event_settings}"
+
+  HOME="${home}" node "${INSTALLER}" install lg --apply --settings "${root_settings}" >"${TMP_DIR}/root-empty.out" 2>&1 || return 1
+  HOME="${home}" node "${INSTALLER}" install lg --apply --settings "${hooks_settings}" >"${TMP_DIR}/hooks-empty.out" 2>&1 || return 1
+  HOME="${home}" node "${INSTALLER}" install lg --apply --settings "${event_settings}" >"${TMP_DIR}/event-empty.out" 2>&1 || return 1
+
+  grep -Fq $'{\n  "hooks": {\n    "PreToolUse": [' "${root_settings}" || return 1
+  grep -Fq $'"hooks": {\n    "PreToolUse": [' "${hooks_settings}" || return 1
+  grep -Fq $'"PreToolUse": [\n      {\n        "matcher": "Bash"' "${event_settings}" || return 1
+}
+
+case_symlinked_settings_path() {
+  local home="${TMP_DIR}/settings-link"
+  local target_dir="${TMP_DIR}/settings-target"
+  local target="${target_dir}/settings.json"
+  local link="${home}/.claude/settings.json"
+  local output="${TMP_DIR}/settings-link.out"
+  mkdir -p "${home}/.claude" "${target_dir}"
+  printf '%s' '{"theme":"dark"}' >"${target}"
+  ln -s "${target}" "${link}" || return 1
+
+  HOME="${home}" node "${INSTALLER}" install lg --apply >"${output}" 2>&1 || return 1
+  [ -L "${link}" ] || return 1
+  [ ! -f "${home}/.claude/settings.json" ] || [ -L "${home}/.claude/settings.json" ] || return 1
+  node - "${target}" <<'NODE' || return 1
+const fs = require('node:fs');
+const settings = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+if (settings.theme !== 'dark') process.exit(1);
+if (settings.hooks.PreToolUse.length !== 1) process.exit(1);
+NODE
+  [ "$(backup_count "${target_dir}")" = "1" ] || return 1
+  grep -Fq 'Settings: updated' "${output}" || return 1
+
+  local dangling_home="${TMP_DIR}/dangling-link"
+  local dangling_output="${TMP_DIR}/dangling-link.out"
+  mkdir -p "${dangling_home}/.claude"
+  ln -s "${TMP_DIR}/missing-settings.json" "${dangling_home}/.claude/settings.json" || return 1
+  if HOME="${dangling_home}" node "${INSTALLER}" install lg --apply >"${dangling_output}" 2>&1; then
+    return 1
+  fi
+  [ -L "${dangling_home}/.claude/settings.json" ] || return 1
+  grep -Fq 'dangling symlink' "${dangling_output}" || return 1
+}
+
+case_prefix_hint_and_validation() {
+  local home="${TMP_DIR}/prefix-home"
+  local prefix="${TMP_DIR}/custom prefix"
+  local output="${TMP_DIR}/prefix.out"
+  mkdir -p "${home}"
+  HOME="${home}" node "${INSTALLER}" install recall --apply --prefix "${prefix}" >"${output}" 2>&1 || return 1
+  grep -Fq "PATH hint: export PATH=\"${prefix}/bin:\$PATH\"" "${output}" || return 1
+
+  local hostile="${TMP_DIR}/bad\$prefix"
+  if HOME="${home}" node "${INSTALLER}" install recall --prefix "${hostile}" >"${TMP_DIR}/hostile-prefix.out" 2>&1; then
+    return 1
+  fi
+  grep -Fq 'cannot contain ", $, `, \, or newlines' "${TMP_DIR}/hostile-prefix.out" || return 1
 }
 
 if ! command -v node >/dev/null 2>&1; then
@@ -266,13 +400,18 @@ run_case fresh-install-all case_fresh_install
 run_case idempotent-second-apply case_idempotent
 run_case dry-run-purity case_dry_run_purity
 run_case byte-preservation-and-backup case_byte_preservation_and_backup
+run_case packaged-tarball-bin-symlink case_packaged_tarball_bin_symlink
 run_case partial-selection case_partial_selection
 run_case invalid-settings-json case_invalid_json
 run_case missing-hooks-and-event-paths case_missing_hooks_and_event
 run_case command-based-dedupe case_command_based_dedupe
 run_case same-command-different-event case_same_command_different_event
+run_case symlink-entrypoint-smoke case_symlink_entrypoint_smoke
+run_case empty-container-formatting case_empty_container_formatting
+run_case symlinked-settings-path case_symlinked_settings_path
+run_case prefix-hint-and-validation case_prefix_hint_and_validation
 
-printf 'passed: %d, failed: %d\n' "${PASS_COUNT}" "${FAIL_COUNT}"
+printf 'passed: %d, failed: %d, skipped: %d\n' "${PASS_COUNT}" "${FAIL_COUNT}" "${SKIP_COUNT}"
 if [ "${FAIL_COUNT}" -ne 0 ]; then
   exit 1
 fi

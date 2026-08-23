@@ -12,6 +12,10 @@ permissions:
   contents: read
   id-token: write
 
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
 jobs:
   publish:
     runs-on: ubuntu-latest

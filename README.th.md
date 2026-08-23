@@ -136,6 +136,8 @@ npm i -g @caty-ai/context-kit
 context-kit install
 ```
 
+[วิธีถอนการติดตั้งอยู่ใน npm README](https://github.com/caty-ai/context-kit/blob/main/packages/npm/README.md#uninstall)
+
 ขั้นตอนที่เริ่มจากการ clone ด้านล่างยังใช้เป็นทางเลือกสำหรับการติดตั้งด้วยตัวเองได้
 
 ### ให้ AI ติดตั้งให้
