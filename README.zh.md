@@ -121,6 +121,23 @@ flowchart LR
 
 你只需要把这套装备接入 Claude Code 一次；之后它就会在每次会话的背后默默工作。
 
+### 从 npm 安装
+
+运行引导式安装器。它会先进行 dry-run；确认文件计划和设置差异后，再执行它显示的完整 `--apply` 命令。
+
+```sh
+npx @caty-ai/context-kit install
+```
+
+也可以全局安装。这样会把 `lg`、`recall`、`wt-snapshot` 和 `context-kit` 安装器加入 `PATH`。
+
+```sh
+npm i -g @caty-ai/context-kit
+context-kit install
+```
+
+下面从 clone 开始的步骤仍可作为手动安装方式。
+
 ### 让 AI 帮你安装
 
 最快的路径: 把下面这段贴给你的 agent，然后审核它提出的方案。

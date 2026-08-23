@@ -1,0 +1,37 @@
+{
+  "name": "@caty-ai/context-kit",
+  "version": "0.3.0",
+  "description": "Small, composable context-engineering tools and safety hooks for AI coding agents.",
+  "type": "module",
+  "bin": {
+    "context-kit": "bin/context-kit.mjs",
+    "lg": "kit/bin/lg",
+    "recall": "kit/bin/recall",
+    "wt-snapshot": "kit/bin/wt-snapshot"
+  },
+  "files": [
+    "bin/",
+    "kit/",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "echo 'Run bash tests/run.sh from the repository root.'"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/caty-ai/context-kit.git"
+  },
+  "homepage": "https://github.com/caty-ai/context-kit",
+  "bugs": {
+    "url": "https://github.com/caty-ai/context-kit/issues"
+  },
+  "license": "MIT"
+}

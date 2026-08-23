@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
-# Batch test runner: discovers and runs every tests/test_*.sh suite.
+# Batch test runner: discovers and runs every tests/test_*.sh suite,
+# including tests/test_npm_installer.sh.
 #
 # - No fail-fast: every declared suite is executed even if an earlier one
 #   fails.

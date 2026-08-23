@@ -1,0 +1,54 @@
+name: Publish to npm
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact version to publish; must equal packages/npm/package.json version
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 26
+          registry-url: https://registry.npmjs.org
+      - run: bash tests/run.sh
+      - name: Stage payload into package root
+        run: |
+          set -euo pipefail
+          mkdir -p packages/npm/kit
+          cp -R bin hooks packages/npm/kit/
+          cp LICENSE packages/npm/LICENSE
+      - name: Byte-verify staged payload
+        run: |
+          set -euo pipefail
+          while IFS= read -r f; do
+            cmp "$f" "packages/npm/kit/$f"
+          done < <(find bin hooks -type f -print | sort)
+          cmp LICENSE packages/npm/LICENSE
+      - name: Verify package version
+        working-directory: packages/npm
+        env:
+          REQUESTED_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          set -euo pipefail
+          package_version="$(npm pkg get version | tr -d '"')"
+          if [[ "$REQUESTED_VERSION" != "$package_version" ]]; then
+            echo "Requested version '$REQUESTED_VERSION' does not match package.json version '$package_version'." >&2
+            exit 1
+          fi
+      - run: npm publish --provenance --access public --tag latest
+        working-directory: packages/npm
+        env:
+          # Bootstrap for the first-ever publish; remove once trusted publisher is configured.
+          NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}
