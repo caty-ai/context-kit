@@ -90,6 +90,12 @@ flowchart TB
 
 ---
 
+## 一緒に使うと効くもの
+
+context-kit はコマンドの巨大出力を抑えます。`lg` はコマンドをラップして先頭と末尾のプレビューだけを返し、`scratch-persist` はそれでも通り抜けたものを退避します。補完関係にあるのは、そもそもその出力を作らないという動きです。[Serena](https://github.com/oraios/serena) のようなシンボル単位のコード検索サーバーがあると、エージェントはファイルを丸読みする代わりに「これはどこで定義されて、どこから呼ばれている？」と聞けます。どちらか一方がもう一方を必要とすることはありません。この役割と、それを埋める外部部品は Family OS の[推奨スタック](https://github.com/caty-ai/family-os/blob/main/docs/recommended-stack.ja.md)にまとめています。
+
+---
+
 ## テスト
 
 ```sh
