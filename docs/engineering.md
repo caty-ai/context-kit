@@ -90,6 +90,12 @@ flowchart TB
 
 ---
 
+## Works well alongside
+
+context-kit bounds oversized output **after it exists** (`lg`, scratch-persist). The complementary move is to avoid producing it at all: a symbol-level code query server such as [Serena](https://github.com/oraios/serena) lets the agent ask "where is this defined, who calls it?" instead of reading whole files. Neither requires the other. The role, and the third-party parts that fill it, are described in the Family OS [recommended stack](https://github.com/caty-ai/family-os/blob/main/docs/recommended-stack.md).
+
+---
+
 ## Testing
 
 ```sh
