@@ -121,6 +121,25 @@ If that matches your machine, setup takes a few minutes.
 
 You wire the kit into Claude Code once; from then on it works in the background of every session.
 
+### Install from npm
+
+Run the guided installer. It starts with a dry-run and prints the exact `--apply` command after you review the file plan and settings diff.
+
+```sh
+npx @caty-ai/context-kit install
+```
+
+Or install it globally. This adds `lg`, `recall`, `wt-snapshot`, and the `context-kit` installer to your `PATH`.
+
+```sh
+npm i -g @caty-ai/context-kit
+context-kit install
+```
+
+Uninstall notes live in the [npm README](https://github.com/caty-ai/context-kit/blob/main/packages/npm/README.md#uninstall).
+
+The clone-based steps below remain available as the manual alternative.
+
 ### Ask your AI to install it
 
 The shortest path: paste this to your agent and review what it proposes.
