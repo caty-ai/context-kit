@@ -7,6 +7,7 @@
 ![context-kit — 为单个 AI agent 打造的上下文卫生工具包](assets/readme/hero.png)
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![npm](https://img.shields.io/npm/v/%40caty-ai%2Fcontext-kit?logo=npm&label=npm)](https://www.npmjs.com/package/@caty-ai/context-kit)
 ![python](https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white)
 ![node](https://img.shields.io/badge/node-18%2B_optional-lightgrey?logo=nodedotjs&logoColor=white)
 ![platform](https://img.shields.io/badge/platform-macOS_%7C_Linux-lightgrey)
