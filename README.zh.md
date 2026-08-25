@@ -22,6 +22,9 @@ context-kit 是一套六件装备，专门在工具运行的那个瞬间，用�
 🔧 [工程指南](docs/engineering.md) ｜ 📘 [参考文档](docs/reference.md)
 
 </div>
+<!-- repo-state:begin (generated; do not edit) -->
+<p align="center"><sub>generation: <code>0c7da9c</code> (2026-08-25T15:10:22Z) · verify: <a href="https://api.github.com/repos/caty-ai/context-kit/commits/feat/repo-state-caller-48">API HEAD</a> · <a href="./status.json">status.json</a></sub></p>
+<!-- repo-state:end -->
 
 ## 目录
 
