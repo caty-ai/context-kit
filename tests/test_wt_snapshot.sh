@@ -124,7 +124,7 @@ xattr_set() {
   local value="$2"
   local file="$3"
 
-  if command -v xattr >/dev/null 2>&1; then
+  if [ "$(uname -s)" = "Darwin" ]; then
     xattr -w "${name}" "${value}" "${file}"
   else
     # Linux user attributes require the user. namespace; macOS keeps the bare name.
@@ -136,7 +136,7 @@ xattr_probe() {
   local name="$1"
   local file="$2"
 
-  if command -v xattr >/dev/null 2>&1; then
+  if [ "$(uname -s)" = "Darwin" ]; then
     xattr -p "${name}" "${file}"
   else
     getfattr -n "user.${name}" --only-values "${file}"
@@ -678,13 +678,20 @@ case_xattr_metadata_leak_is_scanned_raw() {
   local sandbox="${TMP_DIR}/${case_name}"
   local fixture main_repo worktree wrapper_dir real_tar refs_before refs_after objects_before objects_after
   local scan_cmd='grep -aFq FORBIDDEN-SECRET && exit 17 || exit 0'
-  if ! command -v xattr >/dev/null 2>&1 && ! command -v setfattr >/dev/null 2>&1; then
-    record_skip "${case_name}" "no xattr tool (xattr/setfattr) installed — security coverage skipped"
-    return 0
-  fi
-  if ! command -v xattr >/dev/null 2>&1 && ! command -v getfattr >/dev/null 2>&1; then
-    record_fail "${case_name}" "setfattr is installed but getfattr is unavailable, so metadata absence cannot be verified"
-    return 0
+  if [ "$(uname -s)" = "Darwin" ]; then
+    if ! command -v xattr >/dev/null 2>&1; then
+      record_skip "${case_name}" "no xattr tool (xattr) installed — security coverage skipped"
+      return 0
+    fi
+  else
+    if ! command -v setfattr >/dev/null 2>&1; then
+      record_skip "${case_name}" "no xattr tool (setfattr) installed — security coverage skipped"
+      return 0
+    fi
+    if ! command -v getfattr >/dev/null 2>&1; then
+      record_fail "${case_name}" "setfattr is installed but getfattr is unavailable, so metadata absence cannot be verified"
+      return 0
+    fi
   fi
   real_tar=$(command -v tar || true)
   if [ -z "${real_tar}" ]; then
@@ -724,13 +731,20 @@ case_xattr_metadata_leak_is_scanned_raw() {
 
 case_xattr_metadata_is_excluded_without_scanner() {
   local case_name="xattr-metadata-is-excluded-without-scanner"
-  if ! command -v xattr >/dev/null 2>&1 && ! command -v setfattr >/dev/null 2>&1; then
-    record_skip "${case_name}" "no xattr tool (xattr/setfattr) installed — security coverage skipped"
-    return 0
-  fi
-  if ! command -v xattr >/dev/null 2>&1 && ! command -v getfattr >/dev/null 2>&1; then
-    record_fail "${case_name}" "setfattr is installed but getfattr is unavailable, so metadata absence cannot be verified"
-    return 0
+  if [ "$(uname -s)" = "Darwin" ]; then
+    if ! command -v xattr >/dev/null 2>&1; then
+      record_skip "${case_name}" "no xattr tool (xattr) installed — security coverage skipped"
+      return 0
+    fi
+  else
+    if ! command -v setfattr >/dev/null 2>&1; then
+      record_skip "${case_name}" "no xattr tool (setfattr) installed — security coverage skipped"
+      return 0
+    fi
+    if ! command -v getfattr >/dev/null 2>&1; then
+      record_fail "${case_name}" "setfattr is installed but getfattr is unavailable, so metadata absence cannot be verified"
+      return 0
+    fi
   fi
   local sandbox="${TMP_DIR}/${case_name}"
   local fixture main_repo worktree ref payload expected actual extracted

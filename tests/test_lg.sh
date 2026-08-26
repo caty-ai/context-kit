@@ -116,6 +116,32 @@ case_non_ascii_command_slug_is_byte_deterministic() {
   fi
 }
 
+case_invalid_utf8_command_slug_is_byte_deterministic() {
+  local case_name="invalid-utf8-command-slug-is-byte-deterministic"
+  local scratch_dir="${TMP_DIR}/scratch-invalid-utf8"
+  local scratch_file
+  local scratch_name
+  local actual_slug
+
+  run_capture env LC_ALL=C.UTF-8 CK_SCRATCH_DIR="${scratch_dir}" \
+    "${LG}" $'echoX\xffY'
+  scratch_file=$(scratch_path_from_footer "${RUN_STDOUT}")
+  scratch_name=${scratch_file##*/}
+  actual_slug=$(printf '%s\n' "${scratch_name}" | sed -n \
+    's/^scratch-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]-[0-9][0-9]-[0-9][0-9]-\(.*\)\.md$/\1/p')
+
+  if [ "${RUN_STATUS}" = "127" ] &&
+     grep -Fq '[lg] full output preserved:' "${RUN_STDOUT}" &&
+     [ -n "${scratch_file}" ] &&
+     [ -f "${scratch_file}" ] &&
+     [ "${actual_slug}" = "echox-y" ] &&
+     ! grep -Fq 'Illegal byte sequence' "${RUN_STDERR}"; then
+    record_pass "${case_name}"
+  else
+    record_fail "${case_name}" "expected exit 127, an echox-y scratch slug and file, and no illegal-byte stderr; got status ${RUN_STATUS} and slug '${actual_slug}'"
+  fi
+}
+
 case_large_preview() {
   local case_name="large-preview-200-lines"
   local scratch_dir="${TMP_DIR}/scratch-preview"
@@ -331,6 +357,7 @@ case_read_only_dir_root_skip() {
 case_usage
 case_small_full_temp_scratch
 case_non_ascii_command_slug_is_byte_deterministic
+case_invalid_utf8_command_slug_is_byte_deterministic
 case_large_preview
 case_invalid_numeric_defaults
 case_env_preview_override
