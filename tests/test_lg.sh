@@ -44,11 +44,11 @@ finish() {
 }
 
 scratch_path_from_footer() {
-  sed -n 's|^\[lg\] full output preserved: \(.*\) (TTL .*|\1|p' "$1"
+  LC_ALL=C sed -n 's|^\[lg\] full output preserved: \(.*\) (TTL .*|\1|p' "$1"
 }
 
 temp_path_from_marker() {
-  sed -n 's|^... \[[0-9][0-9]* lines omitted / [0-9][0-9]* bytes - scratch unavailable, full output temp: \(.*\)\] ...$|\1|p' "$1"
+  LC_ALL=C sed -n 's|^... \[[0-9][0-9]* lines omitted / [0-9][0-9]* bytes - scratch unavailable, full output temp: \(.*\)\] ...$|\1|p' "$1"
 }
 
 dir_mode() {
@@ -102,7 +102,7 @@ case_non_ascii_command_slug_is_byte_deterministic() {
     "${LG}" 'echo こんにちは'
   scratch_file=$(scratch_path_from_footer "${RUN_STDOUT}")
   scratch_name=${scratch_file##*/}
-  actual_slug=$(printf '%s\n' "${scratch_name}" | sed -n \
+  actual_slug=$(printf '%s\n' "${scratch_name}" | LC_ALL=C sed -n \
     's/^scratch-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]-[0-9][0-9]-[0-9][0-9]-\(.*\)\.md$/\1/p')
 
   if [ "${RUN_STATUS}" = "0" ] &&
@@ -127,7 +127,7 @@ case_invalid_utf8_command_slug_is_byte_deterministic() {
     "${LG}" $'echoX\xffY'
   scratch_file=$(scratch_path_from_footer "${RUN_STDOUT}")
   scratch_name=${scratch_file##*/}
-  actual_slug=$(printf '%s\n' "${scratch_name}" | sed -n \
+  actual_slug=$(printf '%s\n' "${scratch_name}" | LC_ALL=C sed -n \
     's/^scratch-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]-[0-9][0-9]-[0-9][0-9]-\(.*\)\.md$/\1/p')
 
   if [ "${RUN_STATUS}" = "127" ] &&
