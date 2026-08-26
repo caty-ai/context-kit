@@ -101,7 +101,7 @@
 | `CK_WTSNAP_IDENT` | すべての git 呼び出しに使う任意の identity。ユーザーの git config を読まず、author / committer 環境変数へ展開して使う | 組み込みのツール identity |
 | `CK_WTSNAP_TTL_DAYS` | `wt-snapshot prune` が期限切れ ref を一覧表示する際のしきい値日数。`prune` は一覧表示のみで、削除はしない | `30` |
 
-capture は invocation ごとに local `tar` を1回 capability-probe します。未対応の metadata-suppression option は明示的な警告付きで除外します。test archive を作成・検査できず構成を確定できない probe は、pack 前に `tar capability probe failed: ...` と exit `70` で中断します。このツールの Linux / GNU tar path は未検証です。
+capture は invocation ごとに local `tar` を1回 capability-probe します。未対応の metadata-suppression option は明示的な警告付きで除外します。test archive を作成・検査できず構成を確定できない probe は、pack 前に `tar capability probe failed: ...` と exit `70` で中断します。Linux / GNU tar path は CI（ubuntu-latest）で実走しています。
 
 ---
 

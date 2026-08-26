@@ -119,6 +119,47 @@ file_mtime() {
   fi
 }
 
+xattr_set() {
+  local name="$1"
+  local value="$2"
+  local file="$3"
+
+  if [ "$(uname -s)" = "Darwin" ]; then
+    xattr -w "${name}" "${value}" "${file}"
+  else
+    # Linux user attributes require the user. namespace; macOS keeps the bare name.
+    setfattr -n "user.${name}" -v "${value}" "${file}"
+  fi
+}
+
+xattr_probe() {
+  local name="$1"
+  local file="$2"
+
+  if [ "$(uname -s)" = "Darwin" ]; then
+    xattr -p "${name}" "${file}"
+  else
+    getfattr -n "user.${name}" --only-values "${file}"
+  fi
+}
+
+tar_extract_without_metadata() {
+  local archive="$1"
+  local destination="$2"
+  local flag=""
+  local suppression_flags=()
+
+  for flag in --no-mac-metadata --no-xattrs --no-acls --no-fflags; do
+    if COPYFILE_DISABLE=1 tar "${flag}" -tf "${archive}" >/dev/null 2>&1; then
+      suppression_flags+=("${flag}")
+    fi
+  done
+
+  COPYFILE_DISABLE=1 tar \
+    ${suppression_flags[@]+"${suppression_flags[@]}"} \
+    --no-same-owner -xpf "${archive}" -C "${destination}"
+}
+
 repo_index_path() {
   local repo="$1"
   local path
@@ -292,13 +333,19 @@ done
 
 if [ "${create}" -eq 1 ] && [ "${CK_TEST_TAR_MODE:-}" = "metadata-leak" ]; then
   filtered=()
+  metadata_flags=()
   for argument in "$@"; do
     case "${argument}" in
       --no-mac-metadata|--no-xattrs|--no-acls|--no-fflags) ;;
       *) filtered+=("${argument}") ;;
     esac
   done
-  env -u COPYFILE_DISABLE "${CK_TEST_REAL_TAR}" "${filtered[@]}"
+  if "${CK_TEST_REAL_TAR}" --version 2>/dev/null | grep -q 'GNU tar'; then
+    # GNU tar does not archive xattrs by default, so explicitly expose the leak path.
+    metadata_flags+=(--xattrs)
+  fi
+  env -u COPYFILE_DISABLE "${CK_TEST_REAL_TAR}" \
+    ${metadata_flags[@]+"${metadata_flags[@]}"} "${filtered[@]}"
   exit $?
 fi
 
@@ -631,9 +678,20 @@ case_xattr_metadata_leak_is_scanned_raw() {
   local sandbox="${TMP_DIR}/${case_name}"
   local fixture main_repo worktree wrapper_dir real_tar refs_before refs_after objects_before objects_after
   local scan_cmd='grep -aFq FORBIDDEN-SECRET && exit 17 || exit 0'
-  if ! command -v xattr >/dev/null 2>&1; then
-    record_skip "${case_name}" "xattr not installed"
-    return 0
+  if [ "$(uname -s)" = "Darwin" ]; then
+    if ! command -v xattr >/dev/null 2>&1; then
+      record_skip "${case_name}" "no xattr tool (xattr) installed — security coverage skipped"
+      return 0
+    fi
+  else
+    if ! command -v setfattr >/dev/null 2>&1; then
+      record_skip "${case_name}" "no xattr tool (setfattr) installed — security coverage skipped"
+      return 0
+    fi
+    if ! command -v getfattr >/dev/null 2>&1; then
+      record_fail "${case_name}" "setfattr is installed but getfattr is unavailable, so metadata absence cannot be verified"
+      return 0
+    fi
   fi
   real_tar=$(command -v tar || true)
   if [ -z "${real_tar}" ]; then
@@ -646,7 +704,11 @@ case_xattr_metadata_leak_is_scanned_raw() {
   wrapper_dir="${sandbox}/tar-wrapper"
   write_tar_interceptor "${wrapper_dir}"
   printf 'safe visible bytes\n' > "${worktree}/visible.txt"
-  xattr -w secret.probe FORBIDDEN-SECRET "${worktree}/visible.txt"
+  if ! xattr_set secret.probe FORBIDDEN-SECRET "${worktree}/visible.txt" ||
+     ! xattr_probe secret.probe "${worktree}/visible.txt" >/dev/null 2>&1; then
+    record_fail "${case_name}" "failed to create and verify the xattr leak fixture"
+    return 0
+  fi
   refs_before=$(snapshot_refs "${main_repo}")
   objects_before=$(all_objects "${main_repo}")
 
@@ -669,9 +731,20 @@ case_xattr_metadata_leak_is_scanned_raw() {
 
 case_xattr_metadata_is_excluded_without_scanner() {
   local case_name="xattr-metadata-is-excluded-without-scanner"
-  if ! command -v xattr >/dev/null 2>&1; then
-    record_skip "${case_name}" "xattr not installed"
-    return 0
+  if [ "$(uname -s)" = "Darwin" ]; then
+    if ! command -v xattr >/dev/null 2>&1; then
+      record_skip "${case_name}" "no xattr tool (xattr) installed — security coverage skipped"
+      return 0
+    fi
+  else
+    if ! command -v setfattr >/dev/null 2>&1; then
+      record_skip "${case_name}" "no xattr tool (setfattr) installed — security coverage skipped"
+      return 0
+    fi
+    if ! command -v getfattr >/dev/null 2>&1; then
+      record_fail "${case_name}" "setfattr is installed but getfattr is unavailable, so metadata absence cannot be verified"
+      return 0
+    fi
   fi
   local sandbox="${TMP_DIR}/${case_name}"
   local fixture main_repo worktree ref payload expected actual extracted
@@ -683,7 +756,11 @@ case_xattr_metadata_is_excluded_without_scanner() {
   actual="${sandbox}/actual.paths"
   extracted="${sandbox}/extracted"
   printf 'safe visible bytes\n' > "${worktree}/visible.txt"
-  xattr -w secret.probe FORBIDDEN-SECRET "${worktree}/visible.txt"
+  if ! xattr_set secret.probe FORBIDDEN-SECRET "${worktree}/visible.txt" ||
+     ! xattr_probe secret.probe "${worktree}/visible.txt" >/dev/null 2>&1; then
+    record_fail "${case_name}" "failed to create and verify the xattr exclusion fixture"
+    return 0
+  fi
 
   run_in_dir "${worktree}" "${WT_SNAPSHOT}"
   ref=$(snapshot_ref_for_prefix "${main_repo}" "$(basename "${worktree}")" | tail -n 1)
@@ -693,14 +770,16 @@ case_xattr_metadata_is_excluded_without_scanner() {
   fi
   git_setup -C "${main_repo}" show "${ref}:wt-snapshot.payload.tar" > "${payload}"
   mkdir -p "${extracted}"
-  COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs --no-acls --no-fflags \
-    --no-same-owner -xpf "${payload}" -C "${extracted}"
+  if ! tar_extract_without_metadata "${payload}" "${extracted}"; then
+    record_fail "${case_name}" "failed to extract the payload with locally supported metadata suppression flags"
+    return 0
+  fi
   write_tree_path_set "${worktree}" "${expected}"
   write_tree_path_set "${extracted}" "${actual}"
 
   if ! grep -aFq FORBIDDEN-SECRET "${payload}" &&
      cmp -s "${expected}" "${actual}" &&
-     ! xattr -p secret.probe "${extracted}/visible.txt" >/dev/null 2>&1; then
+     ! xattr_probe secret.probe "${extracted}/visible.txt" >/dev/null 2>&1; then
     record_pass "${case_name}"
   else
     record_fail "${case_name}" "payload members must equal the explicit path set and contain no xattr or AppleDouble metadata"

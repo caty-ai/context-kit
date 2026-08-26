@@ -109,6 +109,7 @@ flowchart LR
 | --- | --- |
 | macOS | ✅ system bsdtar を使う `wt-snapshot` を含め検証済み |
 | Linux | ✅ CI で検証済み（ubuntu-latest）。`wt-snapshot` は local tar option を capability-probe し、未対応の metadata suppression を明示する |
+| WSL2（Ubuntu） | ✅ Linux として動作 — リポジトリと scratch ディレクトリは ext4 側（`~` 配下など）に置く。`/mnt/c`（drvfs）では `chmod` が no-op になり、0700/0600 のパーミッション保護を強制できない |
 | AI エージェント | Claude Code ✅ — hook はその hook 仕様が対象 |
 | Python | 3.9 以上（ほとんどの装備で必要） |
 | Node.js | 18 以上（安全ガード3本のうち2本だけで必要） |

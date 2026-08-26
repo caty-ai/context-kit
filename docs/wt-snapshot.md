@@ -67,7 +67,7 @@ wt-snapshot prune
 
 ## Tar requirements
 
-Capture requires a local `tar` that can create, list, and extract the archives used by this tool. Linux/GNU tar has not yet been verified for `wt-snapshot`.
+Capture requires a local `tar` that can create, list, and extract the archives used by this tool. CI exercises both paths: the macOS job covers bsdtar and the ubuntu-latest job covers GNU tar, each running the full test suite. The xattr metadata security cases additionally need an xattr tool (`xattr` on macOS; `setfattr`/`getfattr` from the `attr` package on Linux) and report a loud skip when none is present. See the README support table.
 
 At the start of each capture invocation, `wt-snapshot` creates and inspects a trivial test archive, then probes `--no-mac-metadata`, `--no-xattrs`, `--no-acls`, and `--no-fflags` separately. Only the accepted suppression options are passed to later tar commands. Unsupported options are reported on stderr as `tar metadata suppression unavailable: ...`; capture continues with the supported subset, while the configured raw-archive scan and strict member-set verification remain mandatory. If baseline archive creation or validation cannot establish the configuration, capture stops before packing with exit `70` and a `tar capability probe failed: ...` message.
 

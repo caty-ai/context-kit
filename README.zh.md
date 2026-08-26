@@ -109,6 +109,7 @@ flowchart LR
 | --- | --- |
 | macOS | ✅ 已测试，包括使用系统 bsdtar 的 `wt-snapshot` |
 | Linux | ✅ 已通过 CI 验证（ubuntu-latest）；`wt-snapshot` 会探测本地 tar 选项，并明确报告不支持的 metadata suppression |
+| WSL2（Ubuntu） | ✅ 按 Linux 方式运行 — 请把仓库和 scratch 目录放在 ext4 侧（如 `~` 下）；在 `/mnt/c`（drvfs）上 `chmod` 是 no-op，0700/0600 权限加固无法生效 |
 | AI agent | Claude Code ✅ — hook 是针对它的 hook 规范设计的 |
 | Python | 3.9 及以上，大多数装备都需要 |
 | Node.js | 18 及以上，三道安全防线中有两道需要 |

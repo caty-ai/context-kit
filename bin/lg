@@ -75,7 +75,7 @@ else
   EXPIRES=$(date -d "+${TTL_DAYS} days" "+%Y-%m-%dT%H:%M:%S")
 fi
 
-CMD_SLUG=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '-' | sed 's/--*/-/g; s/^-//; s/-$//' | cut -c1-32)
+CMD_SLUG=$(printf '%s' "$1" | LC_ALL=C tr '[:upper:]' '[:lower:]' | LC_ALL=C tr -c 'a-z0-9' '-' | LC_ALL=C sed 's/--*/-/g; s/^-//; s/-$//' | LC_ALL=C cut -c1-32)
 [ -z "$CMD_SLUG" ] && CMD_SLUG="cmd"
 
 SCRATCH_FILE="${SCRATCH_ROOT}/scratch-${TS}-${CMD_SLUG}.md"
