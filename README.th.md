@@ -109,6 +109,7 @@ flowchart LR
 | --- | --- |
 | macOS | ✅ ทดสอบแล้ว รวมถึง `wt-snapshot` ที่ใช้ system bsdtar |
 | Linux | ✅ ตรวจสอบแล้วผ่าน CI (ubuntu-latest); `wt-snapshot` จะตรวจ capability ของ local tar และแจ้ง metadata suppression ที่ไม่รองรับอย่างชัดเจน |
+| WSL2 (Ubuntu) | ✅ ทำงานแบบ Linux — เก็บ repo และไดเรกทอรี scratch ไว้บน ext4 (เช่นใต้ `~`); บน `/mnt/c` (drvfs) คำสั่ง `chmod` เป็น no-op ทำให้การบังคับสิทธิ์ 0700/0600 ของชุดเครื่องมือใช้ไม่ได้ |
 | AI เอเจนต์ | Claude Code ✅ — hook ออกแบบมาตาม hook spec ของมันโดยเฉพาะ |
 | Python | 3.9 ขึ้นไป จำเป็นสำหรับอุปกรณ์ส่วนใหญ่ |
 | Node.js | 18 ขึ้นไป ใช้เฉพาะการ์ดความปลอดภัย 2 ใน 3 ตัว |

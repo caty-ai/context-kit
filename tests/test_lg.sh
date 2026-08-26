@@ -85,6 +85,37 @@ case_small_full_temp_scratch() {
   fi
 }
 
+case_non_ascii_command_slug_is_byte_deterministic() {
+  local case_name="non-ascii-command-slug-is-byte-deterministic"
+  local command_dir="${TMP_DIR}/non-ascii-command-bin"
+  local command_path="${command_dir}/echo こんにちは"
+  local scratch_dir="${TMP_DIR}/scratch-non-ascii"
+  local scratch_file
+  local scratch_name
+  local actual_slug
+
+  mkdir -p "${command_dir}"
+  printf '#!/bin/sh\nprintf "non-ascii-command-ok\\n"\n' > "${command_path}"
+  chmod +x "${command_path}"
+
+  run_capture env PATH="${command_dir}:${PATH}" CK_SCRATCH_DIR="${scratch_dir}" \
+    "${LG}" 'echo こんにちは'
+  scratch_file=$(scratch_path_from_footer "${RUN_STDOUT}")
+  scratch_name=${scratch_file##*/}
+  actual_slug=$(printf '%s\n' "${scratch_name}" | sed -n \
+    's/^scratch-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]-[0-9][0-9]-[0-9][0-9]-\(.*\)\.md$/\1/p')
+
+  if [ "${RUN_STATUS}" = "0" ] &&
+     grep -Fq 'non-ascii-command-ok' "${RUN_STDOUT}" &&
+     [ -n "${scratch_file}" ] &&
+     [ -f "${scratch_file}" ] &&
+     [ "${actual_slug}" = "echo" ]; then
+    record_pass "${case_name}"
+  else
+    record_fail "${case_name}" "expected a successful command and deterministic echo scratch slug, got '${actual_slug}'"
+  fi
+}
+
 case_large_preview() {
   local case_name="large-preview-200-lines"
   local scratch_dir="${TMP_DIR}/scratch-preview"
@@ -299,6 +330,7 @@ case_read_only_dir_root_skip() {
 
 case_usage
 case_small_full_temp_scratch
+case_non_ascii_command_slug_is_byte_deterministic
 case_large_preview
 case_invalid_numeric_defaults
 case_env_preview_override

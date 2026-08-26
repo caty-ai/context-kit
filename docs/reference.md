@@ -101,7 +101,7 @@ Export hook-related variables from the shell, launcher, or app wrapper that star
 | `CK_WTSNAP_IDENT` | Optional git identity for snapshot git invocations. The tool expands it into author and committer env vars instead of reading user git config | built-in tool identity |
 | `CK_WTSNAP_TTL_DAYS` | Age threshold used by `wt-snapshot prune` when listing expired snapshot refs. The command only lists; it never deletes | `30` |
 
-Capture capability-probes the local `tar` once per invocation. Unsupported metadata-suppression options are omitted with an explicit warning; a probe that cannot create and inspect its test archive fails before packing with `tar capability probe failed: ...` and exit `70`. Linux/GNU tar remains unverified for this tool.
+Capture capability-probes the local `tar` once per invocation. Unsupported metadata-suppression options are omitted with an explicit warning; a probe that cannot create and inspect its test archive fails before packing with `tar capability probe failed: ...` and exit `70`. The Linux/GNU tar path is exercised by CI (ubuntu-latest).
 
 ---
 

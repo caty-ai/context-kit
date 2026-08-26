@@ -67,7 +67,7 @@ wt-snapshot prune
 
 ## tar 要件
 
-capture には、このツールが使う archive の作成・一覧・展開ができる local `tar` が必要です。Linux / GNU tar での `wt-snapshot` は、まだ実機検証していません。
+capture には、このツールが使う archive の作成・一覧・展開ができる local `tar` が必要です。macOS（bsdtar）と Linux / GNU tar の両経路は CI（ubuntu-latest がフルテストスイートを実行）で実走しています。README の対応表も参照してください。
 
 各 capture invocation の開始時に、`wt-snapshot` は小さな test archive を作成・検査し、続いて `--no-mac-metadata`、`--no-xattrs`、`--no-acls`、`--no-fflags` を1つずつ probe します。以降の tar command には、受理された suppression option だけを渡します。未対応 option は stderr の `tar metadata suppression unavailable: ...` で明示し、対応済み subset で capture を続行しますが、設定済み raw-archive scan と厳密な member-set verification は必須のままです。基礎 archive の作成・検証に失敗して安全な構成を確定できない場合は、pack 前に `tar capability probe failed: ...` と exit `70` で中断します。
 

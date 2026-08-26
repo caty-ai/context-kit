@@ -10,6 +10,7 @@ A `PostToolUse` hook cannot replace the tool response that already entered conve
 
 - `python3 >= 3.9` must be available to Claude Code.
 - On macOS, if `python3` is missing because Command Line Tools are not installed yet, `xcode-select --install` is the usual first step.
+- On Linux (including WSL2), install it with your package manager, e.g. `sudo apt install python3` on Debian/Ubuntu.
 
 ## Install
 

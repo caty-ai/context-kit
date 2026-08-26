@@ -109,6 +109,7 @@ Before installing, check what it runs on.
 | --- | --- |
 | macOS | ✅ tested, including `wt-snapshot` with the system bsdtar |
 | Linux | ✅ verified in CI (ubuntu-latest); `wt-snapshot` capability-probes local tar options and reports unsupported metadata suppression |
+| WSL2 (Ubuntu) | ✅ works as Linux — keep repos and scratch directories on ext4 (e.g. under `~`); on `/mnt/c` (drvfs) `chmod` is a no-op, so the kit's 0700/0600 permission hardening cannot be enforced there |
 | AI agent | Claude Code ✅ — the hooks target its hook spec |
 | Python | 3.9 or newer, required by most pieces |
 | Node.js | 18 or newer, only for two of the three safety guards |
