@@ -5,10 +5,11 @@ permissions: {contents: read}
 concurrency: {group: 'test-lint-${{ github.event.pull_request.number }}', cancel-in-progress: true}
 jobs:
   test-lint:
-    # TEMP PIN (context-kit#52): the pre_test_setup_ubuntu input lands in handbook#101 / PR #145.
-    # Pinned to the feature branch only to get a dynamic green before the upstream merges;
-    # re-pinned to the SemVer tag once it exists (ci-v1 advance is an owner decision, handbook#116).
-    uses: caty-ai/family-dev-handbook/.github/workflows/reusable-test-lint.yml@feat/101-test-lint-node-setup-inputs
+    # Pinned to the SemVer tag that carries the pre_test_setup_ubuntu input (handbook#101 / v0.23.0).
+    # The moving ci-v1 tag does not carry it yet (advance = owner decision, handbook#116); switch back
+    # to @ci-v1 only after ci-v1 >= v0.23.0. Note: an input the reusable does not declare only WARNS,
+    # so a wrong pin would silently drop the attr install and the xattr cases would loudly SKIP again.
+    uses: caty-ai/family-dev-handbook/.github/workflows/reusable-test-lint.yml@v0.23.0
     permissions: {contents: read}
     with:
       run_macos: true
@@ -18,4 +19,6 @@ jobs:
       pre_test_setup_ubuntu: |
         sudo apt-get update -qq
         sudo apt-get install -y --no-install-recommends attr
-        command -v setfattr && command -v getfattr
+        # one command per line: under set -e an `a && b` list only fails the step when it is the last line
+        command -v setfattr
+        command -v getfattr

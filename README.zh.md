@@ -235,7 +235,7 @@ make test
 
 ## Project status
 
-- **CI:** 已上线。gitleaks、history-check、test + lint（ubuntu 与 macOS）、pr-size 以及 risk-review gate 作为家族共享 reusable workflow（固定 `ci-v1`）的 caller 在每个 PR 上运行；上方徽章由 test-lint workflow 绘制。
+- **CI:** 已上线。gitleaks、history-check、test + lint（ubuntu 与 macOS）、pr-size 以及 risk-review gate 作为家族共享 reusable workflow（固定 `ci-v1`；test-lint 在 `ci-v1` 跟上之前固定为 `@v0.23.0` — caty-ai/family-dev-handbook#116）的 caller 在每个 PR 上运行；上方徽章由 test-lint workflow 绘制。
 - **已验证环境:** macOS（本地 + CI runner）｜ Linux（CI runner，ubuntu-latest）。
 - **成熟度:** v0.2.0 发布了第六件装备 `wt-snapshot`。接口仍可能发生变化。
 - **已知限制:** safety guard 按设计采用 fail-open；不会因 guard 损坏而阻塞 agent。本项目以 macOS 为优先平台；`wt-snapshot` 的 Linux/GNU tar 路径已由 CI 实际运行验证。

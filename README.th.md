@@ -235,7 +235,7 @@ make test
 
 ## Project status
 
-- **CI:** ใช้งานแล้ว gitleaks, history-check, test + lint (ubuntu และ macOS), pr-size และ risk-review gate ทำงานบนทุก PR ในฐานะ caller ของ family reusable workflow (ปักหมุด `ci-v1`) แบดจ์ด้านบนถูกทาสีโดย test-lint workflow
+- **CI:** ใช้งานแล้ว gitleaks, history-check, test + lint (ubuntu และ macOS), pr-size และ risk-review gate ทำงานบนทุก PR ในฐานะ caller ของ family reusable workflow (ปักหมุด `ci-v1`; test-lint ใช้ `@v0.23.0` จนกว่า `ci-v1` จะตามทัน — caty-ai/family-dev-handbook#116) แบดจ์ด้านบนถูกทาสีโดย test-lint workflow
 - **สภาพแวดล้อมที่ตรวจสอบแล้ว:** macOS (ในเครื่อง + CI runner) | Linux (CI runner, ubuntu-latest)
 - **ระดับความพร้อม:** v0.2.0 เปิดตัวอุปกรณ์ชิ้นที่หกคือ `wt-snapshot` อินเทอร์เฟซยังอาจเปลี่ยนแปลงได้
 - **ข้อจำกัดที่ทราบ:** safety guard ถูกออกแบบให้ fail-open การ์ดที่เสียจะไม่บล็อกเอเจนต์ โปรเจกต์นี้ให้ความสำคัญกับ macOS ก่อน โดยเส้นทาง Linux/GNU tar ของ `wt-snapshot` ได้รับการตรวจสอบจริงผ่าน CI แล้ว

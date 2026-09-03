@@ -235,7 +235,7 @@ make test
 
 ## Project status
 
-- **CI:** 稼働中。gitleaks・history-check・test + lint（ubuntu と macOS）・pr-size・risk-review gate が、家族共通の reusable workflow（`ci-v1` ピン）の caller としてすべての PR で走ります。上のバッジは test-lint workflow が塗っています。
+- **CI:** 稼働中。gitleaks・history-check・test + lint（ubuntu と macOS）・pr-size・risk-review gate が、家族共通の reusable workflow（`ci-v1` ピン。test-lint だけは `ci-v1` が追いつくまで `@v0.23.0` — caty-ai/family-dev-handbook#116）の caller としてすべての PR で走ります。上のバッジは test-lint workflow が塗っています。
 - **検証済み環境:** macOS（ローカル + CI ランナー）｜ Linux（CI ランナー、ubuntu-latest）。
 - **成熟度:** v0.2.0 で6番目の装備 `wt-snapshot` をリリースしました。インターフェースは今後も変わる可能性があります。
 - **既知の制限:** safety guard は意図的に fail-open です。guard が壊れてもエージェントをブロックしません。macOS-first ですが、`wt-snapshot` の Linux/GNU tar 経路は CI で実走検証されています。
