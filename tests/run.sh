@@ -56,24 +56,23 @@ fi
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 TESTS_DIR="${ROOT}/tests"
 
-# Discover suites: tests/test_*.sh, in glob expansion order. Uses a plain glob
+# Discover suites once, in glob expansion order. Uses a plain glob
 # (bash 3.2 safe; no mapfile / associative arrays).
+SUITES=()
 for suite in "${TESTS_DIR}"/test_*.sh; do
   if [ -e "${suite}" ] || [ -L "${suite}" ]; then
-    DECLARED=$((DECLARED + 1))
+    SUITES+=("${suite}")
   fi
 done
+
+DECLARED=${#SUITES[@]}
 
 if [ "${DECLARED}" -eq 0 ]; then
   echo "FAIL: no test suites discovered under ${TESTS_DIR}/test_*.sh" >&2
   exit 1
 fi
 
-for suite in "${TESTS_DIR}"/test_*.sh; do
-  if [ ! -e "${suite}" ] && [ ! -L "${suite}" ]; then
-    continue
-  fi
-
+for suite in "${SUITES[@]}"; do
   name=$(basename "${suite}")
   echo "==> running ${name}"
 
