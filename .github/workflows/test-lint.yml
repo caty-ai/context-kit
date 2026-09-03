@@ -5,7 +5,17 @@ permissions: {contents: read}
 concurrency: {group: 'test-lint-${{ github.event.pull_request.number }}', cancel-in-progress: true}
 jobs:
   test-lint:
-    uses: caty-ai/family-dev-handbook/.github/workflows/reusable-test-lint.yml@ci-v1
+    # TEMP PIN (context-kit#52): the pre_test_setup_ubuntu input lands in handbook#101 / PR #145.
+    # Pinned to the feature branch only to get a dynamic green before the upstream merges;
+    # re-pinned to the SemVer tag once it exists (ci-v1 advance is an owner decision, handbook#116).
+    uses: caty-ai/family-dev-handbook/.github/workflows/reusable-test-lint.yml@feat/101-test-lint-node-setup-inputs
     permissions: {contents: read}
     with:
       run_macos: true
+      # context-kit#52: GitHub's ubuntu image does not ship `attr`, so the Linux xattr
+      # security cases (xattr-metadata-leak-is-scanned-raw / xattr-metadata-is-excluded-without-scanner)
+      # would loudly SKIP. Install it so they execute. macOS has `xattr` built in.
+      pre_test_setup_ubuntu: |
+        sudo apt-get update -qq
+        sudo apt-get install -y --no-install-recommends attr
+        command -v setfattr && command -v getfattr
