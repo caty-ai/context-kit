@@ -235,7 +235,7 @@ The details live in reader-specific docs, one level deeper.
 
 ## Project status
 
-- **CI:** Live. gitleaks, history-check, test + lint (ubuntu & macOS), pr-size, and the risk-review gate run on every PR as callers of the family reusable workflows (pinned `ci-v1`); the badge above is painted by the test-lint workflow.
+- **CI:** Live. gitleaks, history-check, test + lint (ubuntu & macOS; lint = shellcheck over the shell scripts), pr-size, and the risk-review gate run on every PR as callers of the family reusable workflows (pinned `ci-v1`); the badge above is painted by the test-lint workflow.
 - **Verified environments:** macOS (local + CI runner) | Linux (CI runner, ubuntu-latest).
 - **Maturity:** v0.2.0 shipped the sixth piece, `wt-snapshot`. Interfaces may still move.
 - **Known limits:** Safety guards are fail-open by design: a broken guard never blocks the agent. The project is macOS-first; the Linux/GNU tar path of `wt-snapshot` is exercised by CI.
