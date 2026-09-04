@@ -67,7 +67,7 @@ Export hook-related variables from the shell, launcher, or app wrapper that star
 | Variable | Purpose | Default |
 | --- | --- | --- |
 | `CK_SKIP_BRIEF_VALIDATION` | `1` in the launching environment bypasses validation | unset |
-| `CK_BRIEF_REQUIRED_SECTIONS` | Pipe-delimited required section tokens | `## 実装仕様\|## 実装チェック\|## レビュー基準` |
+| `CK_BRIEF_REQUIRED_SECTIONS` | Pipe-delimited required section tokens. By default each layer also accepts its English token (`## Goal` / `## Self-verification` / `## Reviewer criteria`); an explicit override lists single tokens with no aliases. | `## 実装仕様\|## 実装チェック\|## レビュー基準` |
 | `CK_BRIEF_SKIP_SUBAGENT_TYPES` | Comma-separated subagent types that skip validation | `Explore,explore,general-purpose,claude-code-guide,statusline-setup,writer` |
 | `CK_BRIEF_MIN_PROMPT_CHARS` | Minimum prompt length that triggers validation | `500` |
 

@@ -6,7 +6,7 @@ Thanks for considering a contribution. This kit is small on purpose; contributio
 
 - **Fail-open is non-negotiable.** Every internal error path in a hook must exit `0` silently. Exit `2` is reserved for a genuine detection. A change that can block tool calls on a broken installation will not be merged.
 - **No new dependencies.** Python pieces use the standard library only (3.9+). Node pieces target Node 18+ with no packages.
-- **English-only prose in messages.** Corrective messages must read the same in any locale. (The brief validator's default section tokens are deliberately the Japanese headings of the upstream handbook contract; that exception is documented, not a precedent.)
+- **English-only prose in messages.** Corrective messages must read the same in any locale. (The brief validator's default section tokens are deliberately the Japanese headings of the upstream handbook contract, with their English layer names accepted alongside; that exception is documented, not a precedent.)
 - **`CK_` prefix** for any new environment variable, with an explicit default documented in [docs/reference.md](docs/reference.md).
 - **Tests are temp-directory-only** and print one `PASS`/`FAIL` line per case. A behavior change needs a case that fails before and passes after.
 
