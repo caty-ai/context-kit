@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Require three-layer section aliases for substantial Agent/Task delegations."""
+"""Require a three-layer brief for substantial Agent/Task delegations (default section tokens accept Japanese or English)."""
 
 from __future__ import annotations
 
@@ -61,7 +61,11 @@ def render_skeleton(section_groups: List[List[str]]) -> str:
         "- List concrete self-verification steps and completion checks.",
         "- Define observable reviewer criteria and acceptance conditions.",
     ]
-    use_canonical_guidance = section_groups == DEFAULT_REQUIRED_SECTION_GROUPS
+    use_canonical_guidance = (
+        section_groups == DEFAULT_REQUIRED_SECTION_GROUPS
+        or [group[0] for group in section_groups]
+        == [group[0] for group in DEFAULT_REQUIRED_SECTION_GROUPS]
+    )
     blocks = []
     for index, section_group in enumerate(section_groups):
         if use_canonical_guidance and index < len(canonical_guidance):

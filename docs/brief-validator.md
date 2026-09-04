@@ -66,13 +66,15 @@ Export hook environment variables from the shell, launcher, or app wrapper that 
 | Variable | Purpose | Default |
 | --- | --- | --- |
 | `CK_SKIP_BRIEF_VALIDATION` | Set to `1` in the environment that launches Claude Code to bypass validation. | unset |
-| `CK_BRIEF_REQUIRED_SECTIONS` | Pipe-delimited required section tokens. Empty, unset, or malformed values fall back to the canonical tokens. | `## 実装仕様\|## 実装チェック\|## レビュー基準` |
+| `CK_BRIEF_REQUIRED_SECTIONS` | Pipe-delimited required section tokens. Empty, unset, or malformed values fall back to the canonical tokens. By default each layer also accepts its English token; an explicit override lists single tokens with no aliases. | `## 実装仕様\|## 実装チェック\|## レビュー基準` |
 | `CK_BRIEF_SKIP_SUBAGENT_TYPES` | Comma-separated subagent types that skip validation. An explicitly empty value skips no types. | `Explore,explore,general-purpose,claude-code-guide,statusline-setup,writer` |
 | `CK_BRIEF_MIN_PROMPT_CHARS` | Minimum prompt length that triggers validation. Empty or non-numeric values fall back to the default. | `500` |
 
 By default, each required layer also accepts its English token. An explicit `CK_BRIEF_REQUIRED_SECTIONS` override defines single tokens only and does not add aliases.
 
 Required section tokens are matched as plain, case-sensitive substrings. The hook does not normalize case or parse Markdown heading levels.
+
+Because matching is substring-based, a longer heading that contains a token (for example `## Goals` or `### Goal`) also satisfies that layer.
 
 ## Verify
 

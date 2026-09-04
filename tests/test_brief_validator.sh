@@ -495,6 +495,22 @@ case_custom_sections_have_no_aliases() {
   fi
 }
 
+case_explicit_japanese_set_keeps_canonical_guidance() {
+  local case_name="explicit-japanese-set-keeps-canonical-guidance"
+  local required='## 実装仕様|## 実装チェック|## レビュー基準'
+  run_hook "$(payload_for Agent executor "$(long_text)")" CK_BRIEF_REQUIRED_SECTIONS="${required}"
+  if [ "${RUN_STATUS}" = "2" ] &&
+     grep -Fq -- '- State the deliverable, constraints, and relevant context.' "${RUN_STDERR}" &&
+     grep -Fq -- '- List concrete self-verification steps and completion checks.' "${RUN_STDERR}" &&
+     grep -Fq -- '- Define observable reviewer criteria and acceptance conditions.' "${RUN_STDERR}" &&
+     ! grep -Fq -- '- State what this section requires.' "${RUN_STDERR}" &&
+     ! grep -Fq 'English section tokens are accepted too' "${RUN_STDERR}"; then
+    record_pass "${case_name}"
+  else
+    record_fail "${case_name}" "expected an explicit Japanese set to retain canonical guidance without English aliases"
+  fi
+}
+
 case_default_skeleton_mentions_english_tokens() {
   local case_name="default-skeleton-mentions-english-tokens"
   local required='## Goal|## Self-check|## Review criteria'
@@ -543,5 +559,6 @@ case_english_compliant_allowed
 case_mixed_tokens_allowed
 case_english_one_missing_names_both_tokens
 case_custom_sections_have_no_aliases
+case_explicit_japanese_set_keeps_canonical_guidance
 case_default_skeleton_mentions_english_tokens
 finish
