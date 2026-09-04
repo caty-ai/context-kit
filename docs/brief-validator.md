@@ -2,11 +2,11 @@
 
 ## What/Why
 
-`brief-validator` is a `PreToolUse` hook for substantial `Agent` and `Task` delegations. It requires a three-layer brief with these canonical section tokens:
+`brief-validator` is a `PreToolUse` hook for substantial `Agent` and `Task` delegations. It requires a three-layer brief. By default, each layer accepts either its Japanese handbook heading or its English layer name:
 
-- `## 実装仕様`
-- `## 実装チェック`
-- `## レビュー基準`
+- Goal: `## 実装仕様` (Japanese handbook heading) or `## Goal` (English layer name)
+- Self-verification: `## 実装チェック` (Japanese handbook heading) or `## Self-verification` (English layer name)
+- Reviewer criteria: `## レビュー基準` (Japanese handbook heading) or `## Reviewer criteria` (English layer name)
 
 The contract comes from the public [`family-dev-handbook`](https://github.com/caty-ai/family-dev-handbook), specifically [`docs/07-delegation-brief.md`](https://github.com/caty-ai/family-dev-handbook/blob/main/docs/07-delegation-brief.md) and [`templates/brief-template.md`](https://github.com/caty-ai/family-dev-handbook/blob/main/templates/brief-template.md). The three layers keep the requested implementation, self-verification, and reviewer acceptance criteria explicit at the delegation boundary.
 
@@ -70,6 +70,8 @@ Export hook environment variables from the shell, launcher, or app wrapper that 
 | `CK_BRIEF_SKIP_SUBAGENT_TYPES` | Comma-separated subagent types that skip validation. An explicitly empty value skips no types. | `Explore,explore,general-purpose,claude-code-guide,statusline-setup,writer` |
 | `CK_BRIEF_MIN_PROMPT_CHARS` | Minimum prompt length that triggers validation. Empty or non-numeric values fall back to the default. | `500` |
 
+By default, each required layer also accepts its English token. An explicit `CK_BRIEF_REQUIRED_SECTIONS` override defines single tokens only and does not add aliases.
+
 Required section tokens are matched as plain, case-sensitive substrings. The hook does not normalize case or parse Markdown heading levels.
 
 ## Verify
@@ -82,7 +84,7 @@ Run the self-check from the repository root:
 bash tests/test_brief_validator.sh
 ```
 
-Blocked probe: this must print a corrective message (English prose naming the three missing canonical tokens — the tokens themselves are Japanese) and exit `2`.
+Blocked probe: this must print a corrective message naming each missing layer with both accepted tokens and exit `2`.
 
 ```sh
 python3 -c 'import json; print(json.dumps({"tool_name":"Agent","tool_input":{"subagent_type":"executor","prompt":"x" * 500}}))' | sh -c 'f="<CONTEXT_KIT_DIR>/hooks/validate-subagent-brief.sh"; if [ -f "$f" ]; then bash "$f"; fi'; echo $?
@@ -92,6 +94,12 @@ Compliant probe: this must print nothing and exit `0`.
 
 ```sh
 python3 -c 'import json; print(json.dumps({"tool_name":"Agent","tool_input":{"subagent_type":"executor","prompt":"## 実装仕様\n## 実装チェック\n## レビュー基準\n" + "x" * 500}}))' | sh -c 'f="<CONTEXT_KIT_DIR>/hooks/validate-subagent-brief.sh"; if [ -f "$f" ]; then bash "$f"; fi'; echo $?
+```
+
+English compliant probe: this must print nothing and exit `0`.
+
+```sh
+python3 -c 'import json; print(json.dumps({"tool_name":"Agent","tool_input":{"subagent_type":"executor","prompt":"## Goal\n## Self-verification\n## Reviewer criteria\n" + "x" * 500}}))' | sh -c 'f="<CONTEXT_KIT_DIR>/hooks/validate-subagent-brief.sh"; if [ -f "$f" ]; then bash "$f"; fi'; echo $?
 ```
 
 Short-prompt probe: this must print nothing and exit `0`.

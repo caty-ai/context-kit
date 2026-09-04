@@ -81,7 +81,7 @@ case_missing_all_blocks() {
   payload=$(payload_for Agent executor "$(long_text)")
   run_hook "${payload}"
   if [ "${RUN_STATUS}" = "2" ] &&
-     grep -Fq 'Missing sections: ## 実装仕様, ## 実装チェック, ## レビュー基準' "${RUN_STDERR}" &&
+     grep -Fq 'Missing sections: ## 実装仕様 (or ## Goal), ## 実装チェック (or ## Self-verification), ## レビュー基準 (or ## Reviewer criteria)' "${RUN_STDERR}" &&
      grep -Fq 'https://github.com/caty-ai/family-dev-handbook/blob/main/docs/07-delegation-brief.md' "${RUN_STDERR}" &&
      grep -Fq 'CK_SKIP_BRIEF_VALIDATION=1' "${RUN_STDERR}"; then
     record_pass "${case_name}"
@@ -111,7 +111,7 @@ case_one_missing_blocks_exactly() {
   payload=$(payload_for Agent executor "${prompt}")
   run_hook "${payload}"
   missing_line=$(grep '^Missing sections:' "${RUN_STDERR}" || true)
-  if [ "${RUN_STATUS}" = "2" ] && [ "${missing_line}" = 'Missing sections: ## 実装チェック' ]; then
+  if [ "${RUN_STATUS}" = "2" ] && [ "${missing_line}" = 'Missing sections: ## 実装チェック (or ## Self-verification)' ]; then
     record_pass "${case_name}"
   else
     record_fail "${case_name}" "expected the missing-section line to name exactly the absent section"
@@ -137,7 +137,7 @@ case_threshold_boundary() {
   fi
   run_hook "$(payload_for Agent executor "$(repeated_text 500)")"
   if [ "${RUN_STATUS}" = "2" ] &&
-     grep -Fq 'Missing sections: ## 実装仕様, ## 実装チェック, ## レビュー基準' "${RUN_STDERR}"; then
+     grep -Fq 'Missing sections: ## 実装仕様 (or ## Goal), ## 実装チェック (or ## Self-verification), ## レビュー基準 (or ## Reviewer criteria)' "${RUN_STDERR}"; then
     record_pass "${case_name}"
   else
     record_fail "${case_name}" "expected a 500-character prompt to trigger validation"
@@ -258,7 +258,7 @@ case_matching_is_exact() {
   wrong_level_prompt=${wrong_level_prompt#\#}
   run_hook "$(payload_for Agent executor "${wrong_level_prompt}")"
   if [ "${RUN_STATUS}" = "2" ] &&
-     grep -Fxq 'Missing sections: ## 実装仕様' "${RUN_STDERR}"; then
+     grep -Fxq 'Missing sections: ## 実装仕様 (or ## Goal)' "${RUN_STDERR}"; then
     record_pass "${case_name}"
   else
     record_fail "${case_name}" "expected a one-hash heading not to satisfy the exact token"
@@ -272,7 +272,7 @@ case_malformed_required_sections_fall_back() {
   for value in "${malformed_values[@]}"; do
     run_hook "$(payload_for Agent executor "$(long_text)")" CK_BRIEF_REQUIRED_SECTIONS="${value}"
     if [ "${RUN_STATUS}" != "2" ] ||
-       ! grep -Fq 'Missing sections: ## 実装仕様, ## 実装チェック, ## レビュー基準' "${RUN_STDERR}"; then
+       ! grep -Fq 'Missing sections: ## 実装仕様 (or ## Goal), ## 実装チェック (or ## Self-verification), ## レビュー基準 (or ## Reviewer criteria)' "${RUN_STDERR}"; then
       record_fail "${case_name}" "expected malformed required sections (${value}) to fall back to canonical defaults"
       return
     fi
@@ -437,6 +437,85 @@ EOF
   fi
 }
 
+case_english_compliant_allowed() {
+  local case_name="english-compliant-allowed"
+  local prompt
+  prompt=$(printf '## Goal\n## Self-verification\n## Reviewer criteria\n%s' "$(long_text)")
+  run_hook "$(payload_for Agent executor "${prompt}")"
+  if [ "${RUN_STATUS}" = "0" ] && [ ! -s "${RUN_STDOUT}" ] && [ ! -s "${RUN_STDERR}" ]; then
+    record_pass "${case_name}"
+  else
+    record_fail "${case_name}" "expected all three English section tokens to pass silently"
+  fi
+}
+
+case_mixed_tokens_allowed() {
+  local case_name="mixed-tokens-allowed"
+  local prompt
+  prompt=$(printf '## 実装仕様\n## Self-verification\n## レビュー基準\n%s' "$(long_text)")
+  run_hook "$(payload_for Agent executor "${prompt}")"
+  if [ "${RUN_STATUS}" = "0" ] && [ ! -s "${RUN_STDOUT}" ] && [ ! -s "${RUN_STDERR}" ]; then
+    record_pass "${case_name}"
+  else
+    record_fail "${case_name}" "expected a per-layer mix of Japanese and English tokens to pass silently"
+  fi
+}
+
+case_english_one_missing_names_both_tokens() {
+  local case_name="english-one-missing-names-both-tokens"
+  local prompt
+  local missing_line
+  prompt=$(printf '## Goal\n## Reviewer criteria\n%s' "$(long_text)")
+  run_hook "$(payload_for Agent executor "${prompt}")"
+  missing_line=$(grep '^Missing sections:' "${RUN_STDERR}" || true)
+  if [ "${RUN_STATUS}" = "2" ] &&
+     [ "${missing_line}" = 'Missing sections: ## 実装チェック (or ## Self-verification)' ] &&
+     grep -Fq 'English section tokens are accepted too: ## Goal / ## Self-verification / ## Reviewer criteria' "${RUN_STDERR}"; then
+    record_pass "${case_name}"
+  else
+    record_fail "${case_name}" "expected the absent layer to name both accepted tokens and show the English-token note"
+  fi
+}
+
+case_custom_sections_have_no_aliases() {
+  local case_name="custom-sections-have-no-aliases"
+  local required='## 実装仕様|## 実装チェック|## レビュー基準'
+  local prompt
+  local missing_line
+  prompt=$(printf '## Goal\n## Self-verification\n## Reviewer criteria\n%s' "$(long_text)")
+  run_hook "$(payload_for Agent executor "${prompt}")" CK_BRIEF_REQUIRED_SECTIONS="${required}"
+  missing_line=$(grep '^Missing sections:' "${RUN_STDERR}" || true)
+  if [ "${RUN_STATUS}" = "2" ] &&
+     [ "${missing_line}" = 'Missing sections: ## 実装仕様, ## 実装チェック, ## レビュー基準' ] &&
+     ! grep -Fq '(or ' "${RUN_STDERR}" &&
+     ! grep -Fq 'English section tokens are accepted too' "${RUN_STDERR}"; then
+    record_pass "${case_name}"
+  else
+    record_fail "${case_name}" "expected an explicit Japanese set to retain single-token matching and messaging"
+  fi
+}
+
+case_default_skeleton_mentions_english_tokens() {
+  local case_name="default-skeleton-mentions-english-tokens"
+  local required='## Goal|## Self-check|## Review criteria'
+  run_hook "$(payload_for Agent executor "$(long_text)")"
+  if [ "${RUN_STATUS}" != "2" ] ||
+     ! grep -Fq '## 実装仕様' "${RUN_STDERR}" ||
+     ! grep -Fq '## 実装チェック' "${RUN_STDERR}" ||
+     ! grep -Fq '## レビュー基準' "${RUN_STDERR}" ||
+     ! grep -Fq 'English section tokens are accepted too: ## Goal / ## Self-verification / ## Reviewer criteria' "${RUN_STDERR}"; then
+    record_fail "${case_name}" "expected the default skeleton to use Japanese headings and mention English aliases"
+    return
+  fi
+  run_hook "$(payload_for Agent executor "$(long_text)")" CK_BRIEF_REQUIRED_SECTIONS="${required}"
+  if [ "${RUN_STATUS}" = "2" ] &&
+     ! grep -Fq 'English section tokens are accepted too' "${RUN_STDERR}"; then
+    record_pass "${case_name}"
+  else
+    record_fail "${case_name}" "expected a custom skeleton not to mention default English aliases"
+  fi
+}
+
 case_missing_all_blocks
 case_compliant_allowed
 case_one_missing_blocks_exactly
@@ -460,4 +539,9 @@ case_launcher_bypass
 case_missing_body_fail_open
 case_interpreter_status_two_fail_open
 case_interpreter_noise_before_blocked_sentinel
+case_english_compliant_allowed
+case_mixed_tokens_allowed
+case_english_one_missing_names_both_tokens
+case_custom_sections_have_no_aliases
+case_default_skeleton_mentions_english_tokens
 finish

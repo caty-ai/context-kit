@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Require a three-layer brief for substantial Agent/Task delegations."""
+"""Require three-layer section aliases for substantial Agent/Task delegations."""
 
 from __future__ import annotations
 
@@ -9,10 +9,10 @@ import sys
 from typing import List, Set
 
 
-DEFAULT_REQUIRED_SECTIONS = [
-    "## 実装仕様",
-    "## 実装チェック",
-    "## レビュー基準",
+DEFAULT_REQUIRED_SECTION_GROUPS = [
+    ["## 実装仕様", "## Goal"],
+    ["## 実装チェック", "## Self-verification"],
+    ["## レビュー基準", "## Reviewer criteria"],
 ]
 DEFAULT_SKIP_SUBAGENT_TYPES = {
     "Explore",
@@ -26,15 +26,15 @@ DEFAULT_MIN_PROMPT_CHARS = 500
 SUPPORTED_TOOLS = {"Agent", "Task"}
 
 
-def required_sections_from_env() -> List[str]:
+def required_sections_from_env() -> List[List[str]]:
     raw = os.environ.get("CK_BRIEF_REQUIRED_SECTIONS")
     if not raw:
-        return list(DEFAULT_REQUIRED_SECTIONS)
+        return [list(group) for group in DEFAULT_REQUIRED_SECTION_GROUPS]
 
     sections = [section.strip() for section in raw.split("|")]
     if any(not section for section in sections):
-        return list(DEFAULT_REQUIRED_SECTIONS)
-    return sections
+        return [list(group) for group in DEFAULT_REQUIRED_SECTION_GROUPS]
+    return [[section] for section in sections]
 
 
 def skip_subagent_types_from_env() -> Set[str]:
@@ -55,21 +55,27 @@ def min_prompt_chars_from_env() -> int:
         return DEFAULT_MIN_PROMPT_CHARS
 
 
-def render_skeleton(sections: List[str]) -> str:
+def render_skeleton(section_groups: List[List[str]]) -> str:
     canonical_guidance = [
         "- State the deliverable, constraints, and relevant context.",
         "- List concrete self-verification steps and completion checks.",
         "- Define observable reviewer criteria and acceptance conditions.",
     ]
-    use_canonical_guidance = sections == DEFAULT_REQUIRED_SECTIONS
+    use_canonical_guidance = section_groups == DEFAULT_REQUIRED_SECTION_GROUPS
     blocks = []
-    for index, section in enumerate(sections):
+    for index, section_group in enumerate(section_groups):
         if use_canonical_guidance and index < len(canonical_guidance):
             detail = canonical_guidance[index]
         else:
             detail = "- State what this section requires."
-        blocks.append("{}\n{}".format(section, detail))
+        blocks.append("{}\n{}".format(section_group[0], detail))
     return "\n\n".join(blocks)
+
+
+def render_section_group(section_group: List[str]) -> str:
+    if len(section_group) == 1:
+        return section_group[0]
+    return "{} (or {})".format(section_group[0], section_group[1])
 
 
 def sanitize_subagent_type(subagent_type: str) -> str:
@@ -80,16 +86,22 @@ def block_message(
     tool_name: str,
     subagent_type: str,
     missing: List[str],
-    sections: List[str],
+    section_groups: List[List[str]],
     skip_subagent_types: Set[str],
 ) -> str:
     effective_skips = "effective: " + ", ".join(sorted(skip_subagent_types)) if skip_subagent_types else "none configured"
+    english_alias_note = ""
+    if section_groups == DEFAULT_REQUIRED_SECTION_GROUPS:
+        english_alias_note = (
+            "\n\nEnglish section tokens are accepted too: "
+            "## Goal / ## Self-verification / ## Reviewer criteria"
+        )
     return (
         "[validate-subagent-brief] Blocked {} delegation for subagent type '{}'.\n\n"
         "A substantial delegation prompt must include the active three-layer brief.\n"
         "Missing sections: {}\n\n"
         "Minimal skeleton:\n\n"
-        "{}\n\n"
+        "{}{}\n\n"
         "Canonical rulebook:\n"
         "- https://github.com/caty-ai/family-dev-handbook/blob/main/docs/07-delegation-brief.md\n"
         "- https://github.com/caty-ai/family-dev-handbook/blob/main/templates/brief-template.md\n\n"
@@ -101,7 +113,8 @@ def block_message(
         tool_name,
         sanitize_subagent_type(subagent_type),
         ", ".join(missing),
-        render_skeleton(sections),
+        render_skeleton(section_groups),
+        english_alias_note,
         effective_skips,
     )
 
@@ -139,8 +152,12 @@ def run() -> int:
     if len(prompt) < min_prompt_chars_from_env():
         return 0
 
-    sections = required_sections_from_env()
-    missing = [section for section in sections if section not in prompt]
+    section_groups = required_sections_from_env()
+    missing = [
+        render_section_group(section_group)
+        for section_group in section_groups
+        if not any(token in prompt for token in section_group)
+    ]
     if not missing:
         return 0
 
@@ -149,7 +166,7 @@ def run() -> int:
             tool_name,
             subagent_type,
             missing,
-            sections,
+            section_groups,
             skip_subagent_types,
         ),
         file=sys.stderr,

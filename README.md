@@ -81,7 +81,7 @@ flowchart LR
 
 - 📋 **brief-validator**
 
-  Blocks a long delegation to a subagent unless it carries a three-part brief: what to build, how the worker self-checks, and how a reviewer judges it. The default section headings are the Japanese ones from the public handbook this contract comes from — swappable with one environment variable.
+  Blocks a long delegation to a subagent unless it carries a three-part brief: what to build, how the worker self-checks, and how a reviewer judges it. The default section headings are the Japanese ones from the public handbook this contract comes from or their English equivalents, and are still swappable with one environment variable.
 
 - 🛡️ **safety-hooks**
 

@@ -67,7 +67,7 @@
 | 変数 | 用途 | デフォルト |
 | --- | --- | --- |
 | `CK_SKIP_BRIEF_VALIDATION` | 起動環境で `1` を設定すると検証をバイパスする | 未設定 |
-| `CK_BRIEF_REQUIRED_SECTIONS` | パイプ区切りの必須セクショントークン | `## 実装仕様\|## 実装チェック\|## レビュー基準` |
+| `CK_BRIEF_REQUIRED_SECTIONS` | パイプ区切りの必須セクショントークン。既定では各レイヤーで英語トークン（`## Goal` / `## Self-verification` / `## Reviewer criteria`）も受け入れます。明示的な上書きは単一トークンの一覧として扱われ、エイリアスはありません。 | `## 実装仕様\|## 実装チェック\|## レビュー基準` |
 | `CK_BRIEF_SKIP_SUBAGENT_TYPES` | 検証をスキップするサブエージェントタイプ（カンマ区切り） | `Explore,explore,general-purpose,claude-code-guide,statusline-setup,writer` |
 | `CK_BRIEF_MIN_PROMPT_CHARS` | 検証がトリガーされる最小プロンプト長 | `500` |
 
