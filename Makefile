@@ -5,8 +5,6 @@ SHELL := /bin/bash
 test:
 	bash tests/run.sh
 
-# The SC2155 exclusion covers 12 pre-existing findings in `tests/test_safety_hooks.sh`.
-# #38 leaves that file untouched because #52 may edit it; remove the exclusion once it is clean.
 lint:
 	@if ! command -v shellcheck >/dev/null 2>&1; then \
 		echo "missing-dep: shellcheck" >&2; \
@@ -41,4 +39,4 @@ lint:
 		exit 1; \
 	fi; \
 	printf 'shellcheck: %s\n' "$${files[@]}"; \
-	shellcheck --severity=warning --exclude=SC2155 "$${files[@]}"
+	shellcheck --severity=warning "$${files[@]}"

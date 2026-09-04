@@ -283,13 +283,20 @@ case_private_allow_bypass_and_fail_open() {
 
 case_api_pattern_families() {
   local case_name="api-key-provider-patterns-block"
-  local anthropic="sk-ant-$(repeat_char 24 x)"
-  local openai="sk-$(repeat_char 40 x)"
-  local google="AIza$(repeat_char 35 x)"
-  local aws="AKIA$(repeat_char 16 X)"
-  local gitlab="glpat-$(repeat_char 24 x)"
-  local github="ghp_$(repeat_char 40 x)"
-  local slack="xoxb-$(repeat_char 12 x)"
+  local anthropic
+  anthropic="sk-ant-$(repeat_char 24 x)"
+  local openai
+  openai="sk-$(repeat_char 40 x)"
+  local google
+  google="AIza$(repeat_char 35 x)"
+  local aws
+  aws="AKIA$(repeat_char 16 X)"
+  local gitlab
+  gitlab="glpat-$(repeat_char 24 x)"
+  local github
+  github="ghp_$(repeat_char 40 x)"
+  local slack
+  slack="xoxb-$(repeat_char 12 x)"
   local entry
   local label
   local token
@@ -317,7 +324,8 @@ case_api_pattern_families() {
 
 case_api_tool_surfaces() {
   local case_name="api-key-write-edit-and-nontarget-surfaces"
-  local token="sk-$(repeat_char 40 x)"
+  local token
+  token="sk-$(repeat_char 40 x)"
 
   run_api "$(payload_for Write "${token}" '/tmp/example.txt')"
   if [ "${RUN_STATUS}" != "2" ]; then
@@ -341,7 +349,8 @@ case_api_tool_surfaces() {
 
 case_api_allow_bypass_exclusion_and_fail_open() {
   local case_name="api-key-allow-bypass-exclusion-and-fail-open"
-  local token="sk-$(repeat_char 40 x)"
+  local token
+  token="sk-$(repeat_char 40 x)"
   local provider_env="provider.env"
 
   run_api "$(payload_for Bash 'printf safe-value')"
@@ -397,7 +406,8 @@ case_api_allow_bypass_exclusion_and_fail_open() {
 case_api_evidence_permissions_and_notice() {
   local case_name="api-key-evidence-is-redacted-mode-0600"
   local evidence_dir="${TMP_DIR}/evidence"
-  local token="sk-$(repeat_char 40 x)"
+  local token
+  token="sk-$(repeat_char 40 x)"
   local evidence_file
 
   mkdir -p "${evidence_dir}"
@@ -421,7 +431,8 @@ case_api_evidence_permissions_and_notice() {
 case_api_default_root_is_0700() {
   local case_name="api-key-default-scratch-root-is-0700"
   local fake_home="${TMP_DIR}/home"
-  local token="sk-$(repeat_char 40 x)"
+  local token
+  token="sk-$(repeat_char 40 x)"
   local payload
   local default_dir="${fake_home}/.claude/scratch/test-agent/memory"
 
@@ -445,7 +456,8 @@ case_api_relative_scratch_is_not_cwd_relative() {
   local fake_home="${TMP_DIR}/relative-home"
   local temp_cwd="${TMP_DIR}/relative-cwd"
   local expected_dir="${fake_home}/.claude/scratch/test-agent/memory/relscratch"
-  local token="sk-$(repeat_char 40 x)"
+  local token
+  token="sk-$(repeat_char 40 x)"
   local payload
   local evidence_file
 
