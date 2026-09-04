@@ -23,7 +23,7 @@ context-kit は、その事故をツール実行のその場所で機械的に�
 
 </div>
 <!-- repo-state:begin (generated; do not edit) -->
-<p align="center"><sub>generation: <code>8c2316d</code> (2026-08-29T18:27:02Z) · verify: <a href="https://api.github.com/repos/caty-ai/context-kit/commits/main">API HEAD</a> · <a href="./status.json">status.json</a></sub></p>
+<p align="center"><sub>generation: <code>a60231c</code> (2026-09-03T19:00:19Z) · verify: <a href="https://api.github.com/repos/caty-ai/context-kit/commits/main">API HEAD</a> · <a href="./status.json">status.json</a></sub></p>
 <!-- repo-state:end -->
 
 ## 目次
@@ -235,7 +235,7 @@ make test
 
 ## Project status
 
-- **CI:** 稼働中。gitleaks・history-check・test + lint（ubuntu と macOS）・pr-size・risk-review gate が、家族共通の reusable workflow（`ci-v1` ピン）の caller としてすべての PR で走ります。上のバッジは test-lint workflow が塗っています。
+- **CI:** 稼働中。gitleaks・history-check・test + lint（ubuntu と macOS）・pr-size・risk-review gate が、家族共通の reusable workflow（`ci-v1` ピン。test-lint だけは `ci-v1` が追いつくまで `@v0.23.0` — caty-ai/family-dev-handbook#116）の caller としてすべての PR で走ります。上のバッジは test-lint workflow が塗っています。
 - **検証済み環境:** macOS（ローカル + CI ランナー）｜ Linux（CI ランナー、ubuntu-latest）。
 - **成熟度:** v0.2.0 で6番目の装備 `wt-snapshot` をリリースしました。インターフェースは今後も変わる可能性があります。
 - **既知の制限:** safety guard は意図的に fail-open です。guard が壊れてもエージェントをブロックしません。macOS-first ですが、`wt-snapshot` の Linux/GNU tar 経路は CI で実走検証されています。

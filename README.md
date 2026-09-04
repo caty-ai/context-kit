@@ -23,7 +23,7 @@ context-kit is a six-piece equipment set that stops these accidents mechanically
 
 </div>
 <!-- repo-state:begin (generated; do not edit) -->
-<p align="center"><sub>generation: <code>8c2316d</code> (2026-08-29T18:27:02Z) · verify: <a href="https://api.github.com/repos/caty-ai/context-kit/commits/main">API HEAD</a> · <a href="./status.json">status.json</a></sub></p>
+<p align="center"><sub>generation: <code>a60231c</code> (2026-09-03T19:00:19Z) · verify: <a href="https://api.github.com/repos/caty-ai/context-kit/commits/main">API HEAD</a> · <a href="./status.json">status.json</a></sub></p>
 <!-- repo-state:end -->
 
 ## Contents
@@ -235,7 +235,7 @@ The details live in reader-specific docs, one level deeper.
 
 ## Project status
 
-- **CI:** Live. gitleaks, history-check, test + lint (ubuntu & macOS; lint = shellcheck over the shell scripts), pr-size, and the risk-review gate run on every PR as callers of the family reusable workflows (pinned `ci-v1`); the badge above is painted by the test-lint workflow.
+- **CI:** Live. gitleaks, history-check, test + lint (ubuntu & macOS; lint = shellcheck over the shell scripts), pr-size, and the risk-review gate run on every PR as callers of the family reusable workflows (pinned `ci-v1`; test-lint is on `@v0.23.0` until `ci-v1` advances past it — caty-ai/family-dev-handbook#116); the badge above is painted by the test-lint workflow.
 - **Verified environments:** macOS (local + CI runner) | Linux (CI runner, ubuntu-latest).
 - **Maturity:** v0.2.0 shipped the sixth piece, `wt-snapshot`. Interfaces may still move.
 - **Known limits:** Safety guards are fail-open by design: a broken guard never blocks the agent. The project is macOS-first; the Linux/GNU tar path of `wt-snapshot` is exercised by CI.
