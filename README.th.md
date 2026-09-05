@@ -23,7 +23,7 @@ context-kit คือชุดอุปกรณ์ 6 ชิ้นที่ห�
 
 </div>
 <!-- repo-state:begin (generated; do not edit) -->
-<p align="center"><sub>generation: <code>ff51119</code> (2026-09-04T17:32:05Z) · verify: <a href="https://api.github.com/repos/caty-ai/context-kit/commits/main">API HEAD</a> · <a href="./status.json">status.json</a></sub></p>
+<p align="center"><sub>generation: <code>b56a8e7</code> (2026-09-05T09:48:20Z) · verify: <a href="https://api.github.com/repos/caty-ai/context-kit/commits/main">API HEAD</a> · <a href="./status.json">status.json</a></sub></p>
 <!-- repo-state:end -->
 
 ## สารบัญ
