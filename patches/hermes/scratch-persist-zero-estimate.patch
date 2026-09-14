@@ -1,0 +1,22 @@
+--- a/plugins/context_engine/scratch_persist/engine.py
++++ b/plugins/context_engine/scratch_persist/engine.py
+@@ -19,6 +19,7 @@
+ from .persistor import THRESHOLD_CHARS, _extract_text
+
+ from agent.context_compressor import ContextCompressor
++from agent.model_metadata import estimate_messages_tokens_rough
+
+ from .persistor import ScratchPersistor
+
+@@ -141,6 +142,11 @@
+         # Layer 2: only summarize when the normal threshold is actually hit.
+         # Preflight-driven calls can still invoke compress(); in that case we only
+         # want layer 1 unless the caller also tells us the threshold is exceeded.
++        # Core uses zero after adopting a newer durable transcript: re-estimate
++        # the current post-offload snapshot, not stale last-prompt usage. None
++        # still means the ordinary preflight/unknown-usage path.
++        if current_tokens == 0:
++            current_tokens = estimate_messages_tokens_rough(new_messages)
+         effective_tokens = current_tokens if current_tokens is not None else self.last_prompt_tokens
+         if effective_tokens is not None and effective_tokens >= self.threshold_tokens:
+             return super().compress(
